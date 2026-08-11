@@ -1019,3 +1019,83 @@ def test_the_old_key_would_have_passed_on_exactly_this_suite(monkeypatch):
     assert not any(t.has_hidden_tests for t in tasks) and any(t.hidden_verify_commitment for t in tasks), (
         "so the old key was false and the new key is true on identical input"
     )
+
+
+def test_thinking_does_not_draw_on_the_action_budget(tmp_path):
+    """`max_steps` is an action budget, and a THINKING step used to cost exactly as much as a call.
+
+    Measured over a 19-task run: 300 thinking steps against 318 tool calls, so 49% of every budget
+    went on reasoning and a nominal `max_steps: 15` was about 7 actions. Every failing episode in that
+    run ended on `step budget exhausted`, and 5 of the 9 capped episodes had already passed.
+
+    This is the same argument the harness already accepted for verification: sharing one budget makes
+    it penalise the behaviour it also rewards. It is sharper here, because the pinned model's own
+    template sets `Reasoning strength: high` and returns deliberation on a separate channel -- it
+    cannot choose to spend the budget like a non-reasoning model.
+    """
+    from hermes.trajectory import THINKING, TOOL_CALL, Step
+    from hermesbench.runner import run_episode
+    from hermesbench.tasks import Task
+
+    calls_made: list[str] = []
+
+    class Thinker:
+        """One thinking step and one call per turn, which is what this dialect always produces."""
+
+        tokens_used = 0
+
+        def next_steps(self, task, history):
+            n = len(calls_made)
+            return [
+                Step(kind=THINKING, content=f"considering step {n}"),
+                Step(kind=TOOL_CALL, tool="terminal", args={"command": f"echo {n}"}, call_id=f"c{n}"),
+            ]
+
+    class Executor:
+        def execute(self, tool, args, *, workspace, env=None):
+            calls_made.append(args.get("command", ""))
+            return True, "ok"
+
+    task = Task(
+        task_id="budget",
+        prompt="p",
+        verify="true",
+        tools=("terminal",),
+        max_steps=6,
+        max_reasoning_steps=100,
+    )
+    run_episode(task, Thinker(), Executor(), tmp_path)
+    assert len(calls_made) == 6, (
+        f"6 actions from a 6-action budget, not 3; got {len(calls_made)}. Thinking must not be charged "
+        "against max_steps"
+    )
+
+
+def test_a_policy_that_only_thinks_still_terminates(tmp_path):
+    """The allowance is bounded, not free. Without a cap a policy that never acts spins forever, and
+    the stall check cannot tell deliberating from hanging -- each turn does produce a step."""
+    from hermes.trajectory import THINKING, Step
+    from hermesbench.runner import run_episode
+    from hermesbench.tasks import Task
+
+    class OnlyThinks:
+        tokens_used = 0
+
+        def next_steps(self, task, history):
+            return [Step(kind=THINKING, content="still considering")]
+
+    class Executor:
+        def execute(self, tool, args, *, workspace, env=None):
+            raise AssertionError("no call should ever be made")
+
+    task = Task(
+        task_id="thinker",
+        prompt="p",
+        verify="true",
+        tools=("terminal",),
+        max_steps=50,
+        max_reasoning_steps=4,
+    )
+    result = run_episode(task, OnlyThinks(), Executor(), tmp_path)
+    assert result.metrics.max_steps_hit, "it has to stop, and stop for the reason it actually stopped"
+    assert sum(1 for s in result.trajectory.steps if s.kind == THINKING) == 4

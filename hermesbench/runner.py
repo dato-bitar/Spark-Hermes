@@ -32,7 +32,7 @@ from typing import Any, Protocol
 
 from hermes.pin import load_tool_schemas
 from hermes.protocol import DIALECTS
-from hermes.trajectory import FINAL, TOOL_CALL, TOOL_RESULT, AgentTrajectory, Step
+from hermes.trajectory import FINAL, THINKING, TOOL_CALL, TOOL_RESULT, AgentTrajectory, Step
 from hermesbench import BENCH_VERSION
 from hermesbench.integrity import IntegrityReport, check_integrity, digest_paths, enforce
 from hermesbench.metrics import EpisodeMetrics, SuiteMetrics, episode_metrics, suite_metrics
@@ -386,6 +386,7 @@ def run_episode(
     verification_tools = set(task.verification_tools)
     finished = False
     max_steps_hit = False
+    reasoning_steps = 0
     stalled = False
     agent_steps = 0
     verification_steps = 0
@@ -399,7 +400,7 @@ def run_episode(
         checkpoint_timeline.append(_sample_checkpoints(task, workspace, baselines=baselines))
 
     while not finished and not max_steps_hit:
-        before = agent_steps + verification_steps
+        before = agent_steps + verification_steps + reasoning_steps
         for step in policy.next_steps(task, list(steps)):
             # A policy does not get to author observations. If it emits a tool_result,
             # that is a fabricated one -- drop it and keep only what the executor saw.
@@ -410,8 +411,20 @@ def run_episode(
             # would mean the harness penalises exactly the behavior `self_check_rate`
             # rewards, and could cut an episode off mid-verification.
             is_verification = step.kind == TOOL_CALL and step.tool in verification_tools
+            # Deliberation draws on its own allowance, for the same reason verification does:
+            # `max_steps` is an ACTION budget, and charging a THINKING step against it makes the
+            # harness penalise thinking. Measured over a 19-task run, 49% of the budget went on
+            # reasoning, so a nominal 15 steps was about 7 actions -- and this model's own template
+            # sets `Reasoning strength: high`, so it cannot choose to spend the budget otherwise.
+            is_reasoning = step.kind == THINKING
             if is_verification:
                 if verification_steps >= task.max_verification_steps:
+                    max_steps_hit = True
+                    break
+            elif is_reasoning:
+                # Bounded, not free. A policy that only ever thinks still has to terminate, and the
+                # stall check below cannot tell deliberating from hanging.
+                if reasoning_steps >= task.max_reasoning_steps:
                     max_steps_hit = True
                     break
             # Checked per step, not per turn: a policy that returns fifty calls in one
@@ -423,6 +436,8 @@ def run_episode(
             steps.append(step)
             if is_verification:
                 verification_steps += 1
+            elif is_reasoning:
+                reasoning_steps += 1
             else:
                 agent_steps += 1
             if step.kind == TOOL_CALL:
@@ -456,7 +471,7 @@ def run_episode(
             if task.checkpoints and (agent_steps + verification_steps) % task.checkpoint_every == 0:
                 checkpoint_timeline.append(_sample_checkpoints(task, workspace, baselines=baselines))
 
-        if not finished and not max_steps_hit and (agent_steps + verification_steps) == before:
+        if not finished and not max_steps_hit and (agent_steps + verification_steps + reasoning_steps) == before:
             # The turn produced nothing -- an empty response, or a batch of only
             # fabricated tool_results. The step budget can never be reached from here,
             # so without this the loop spins forever on a single stuck episode.
