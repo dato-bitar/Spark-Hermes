@@ -104,6 +104,7 @@ class Summary:
     overfit_skipped: int = 0
     capped: list[str] = field(default_factory=list)
     reasoning_markup_stripped: int = 0
+    truncated_skipped: int = 0
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -118,6 +119,10 @@ class Summary:
             # dialect's private-deliberation channel. Non-zero means the episodes predate the
             # harness fix that stopped recording them; the rows are clean, the logs are not.
             "reasoning_markup_stripped": self.reasoning_markup_stripped,
+            # Verified episodes held back because the harness cut them off mid-work. Reported rather
+            # than silently dropped: a corpus that is smaller than the verified count needs to say
+            # why, and a rising number here means the action budgets are too tight.
+            "truncated_skipped": self.truncated_skipped,
             # Excluded from SFT and *kept* as rejected examples. An episode that passed the
             # published check and failed the withheld one is the sharpest negative there is: it is
             # what fitting the visible assertions looks like. Training on it teaches that; training
@@ -201,6 +206,16 @@ def sft_rows(episodes: list[Episode], *, system_policy: str = "keep") -> list[di
     rows: list[dict[str, Any]] = []
     for episode in episodes:
         if not episode.verified or not episode.usable:
+            continue
+        if episode.truncated:
+            # SFT is pure imitation, so this matters more here than in `preference_pairs` -- where a
+            # truncated episode is already barred from the chosen side. A trajectory the harness cut
+            # off at the step budget ends mid-work, and its last recorded step is the harness saying
+            # so, not the model finishing. Training on it teaches stopping short.
+            #
+            # Measured on a 152-episode run: 18 of 143 verified episodes were truncated, concentrated
+            # on four tasks whose action budgets are still tight. Emitting them from here while
+            # excluding them there was an inconsistency, and the imitation signal is the stronger one.
             continue
         trajectory = AgentTrajectory.from_record(episode.trajectory)
         record = to_messages_record(trajectory, system_policy=system_policy, **context)
@@ -365,6 +380,7 @@ def aggregate(
     summary.capped = capped
     # Counted off the rows themselves rather than tracked through the renderer, so the number always
     # describes what was actually written.
+    summary.truncated_skipped = sum(1 for e in episodes if e.verified and e.usable and e.truncated)
     summary.reasoning_markup_stripped = sum(
         int(message.get("reasoning_markup_stripped") or 0) for row in rows for message in row["messages"]
     ) + sum(

@@ -381,3 +381,34 @@ def test_read_episodes_records_truncation(tmp_path):
     episode = read_episodes(log, round_id="r-1", miner_id="carol")[0]
     assert episode.truncated is True
     assert episode.dialect == "atem"
+
+
+def test_a_truncated_episode_is_not_an_sft_row_either():
+    """SFT is pure imitation, so this matters more than the pair filter, not less.
+
+    A trajectory the harness cut off at the step budget ends mid-work, and its last recorded step is
+    the harness saying so rather than the model finishing. Measured on a 152-episode run: 18 of 143
+    verified episodes were truncated. Barring them from the chosen side of a pair while still emitting
+    them here was an inconsistency -- and the imitation signal is the stronger of the two.
+    """
+    rows = sft_rows([_ep(task="t1"), _ep(task="t2", truncated=True)])
+    assert [r["task_id"] for r in rows] == ["t1"]
+
+
+def test_the_summary_says_how_many_were_held_back():
+    """A corpus smaller than the verified count has to say why. A rising number here is the signal
+    that the action budgets are too tight -- which is exactly what those four tasks showed."""
+    import tempfile
+    from pathlib import Path
+
+    from validator.aggregate import aggregate
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "corpus"
+        summary = aggregate(
+            [_ep(task="t1"), _ep(task="t2", truncated=True), _ep(task="t3", truncated=True)],
+            out=out,
+        )
+        record = summary.to_record()
+    assert record["sft_rows"] == 1
+    assert record["truncated_skipped"] == 2
