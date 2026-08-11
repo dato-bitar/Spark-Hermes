@@ -103,6 +103,13 @@ dialect          atem
 verify_digest    sha256:9f57e7ac0cbb5daf…
 ```
 
+`max_steps_hit` was **true** for this episode: it verified its answer and then the harness cut in at
+the step budget, so the `FINAL` step is `step budget exhausted (18)` rather than the model's own
+summary. It passed anyway, because the work was done. That is not always how it goes — across both
+runs of this suite, **every failing episode ended the same way**, so `1 - success_rate` is a mix of
+"could not" and "ran out", and the suite now reports `truncated_episodes` and `truncated_failures`
+beside the rate rather than letting the rate stand in for a capability measurement.
+
 `verify_digest` is the sha256 of the *published* verify script, stamped at run time. It exists
 because two graders in this suite once invoked a bare `python`, failed 10/10 for a reason no model
 caused, and were fixed later — leaving a log that read as a capability gap against a grader that now
