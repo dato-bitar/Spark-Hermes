@@ -158,6 +158,36 @@ _SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("encoding_mismatch", ("utf-8", "encoding", "unicode", "latin-1")),
 )
 
+# The published category, where a dataset supplies one, beats anything inferred from prose: it is an
+# abstraction its authors made deliberately. Inference is the fallback for a source with no labels.
+#
+# The first version of this module had no such map and filtered `_SIGNALS` -- whose labels are SKILLS
+# -- for names in DOMAINS. That intersection is empty, so `_classify` always saw an empty table and
+# every DNA in a 400-seed sample came out `repository_engineering`. A generator fed 400 identical
+# domains produces 400 variations of one world, which is the failure this whole module exists to
+# avoid, and it was invisible until the distribution was printed.
+_CATEGORY_DOMAINS: dict[str, str] = {
+    "Terminal & Coding": "repository_engineering",
+    "Repository Tasks": "repository_engineering",
+    "File Operations": "data_processing",
+    "Data & Analysis": "data_processing",
+    "Multi-Tool": "system_administration",
+    "Scheduling": "system_administration",
+    "DevOps & Infrastructure": "build_and_packaging",
+    "Build & Release": "build_and_packaging",
+    "Planning & Organization": "text_and_encoding",
+    "Agent Tools": "system_administration",
+}
+
+_DOMAIN_SIGNALS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("repository_engineering", ("repo", "module", "pytest", "commit", "refactor", "source file")),
+    ("data_processing", ("csv", "json", "records", "rows", "parse", "dataset")),
+    ("build_and_packaging", ("cmake", "makefile", "wheel", "compile", "install", "package")),
+    ("system_administration", ("service", "cron", "daemon", "permission", "systemd", "process")),
+    ("numerical_computing", ("matrix", "float", "precision", "numeric", "rounding")),
+    ("text_and_encoding", ("encoding", "unicode", "utf-8", "locale", "text file")),
+)
+
 _ENVIRONMENTS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("python_repository", ("pytest", ".py", "import ", "pip")),
     ("c_or_cpp_build", ("cmake", "makefile", "gcc", "g++", ".cpp")),
@@ -218,7 +248,7 @@ def extract(record: dict[str, Any], *, dataset: str, licence: str, index: int) -
     high = max(low + 2, int(calls * 1.4))
 
     dna = TaskDNA(
-        domain=_classify(text, tuple((d, n) for d, n in _SIGNALS if d in DOMAINS), DOMAINS[0]),
+        domain=_CATEGORY_DOMAINS.get(str(record.get("category") or "")) or _classify(text, _DOMAIN_SIGNALS, DOMAINS[0]),
         skills=skills,
         environment=_classify(text, _ENVIRONMENTS, "shell_workspace"),
         difficulty=_difficulty(calls, recovered),
@@ -284,6 +314,13 @@ def _seed_text(record: dict[str, Any]) -> str:
 
 def _seed_tools(record: dict[str, Any]) -> list[str]:
     declared = record.get("tools") or record.get("tools_available")
+    if isinstance(declared, str):
+        # Some published sets carry the tool block as a JSON string. Left unparsed it reads as a
+        # sequence of characters and every "tool name" is one letter, which maps to nothing.
+        try:
+            declared = json.loads(declared)
+        except json.JSONDecodeError:
+            declared = []
     names: list[str] = []
     if isinstance(declared, list):
         for entry in declared:
@@ -323,8 +360,22 @@ def _seed_recovered(record: dict[str, Any]) -> bool:
     for turn in record.get("messages") or []:
         if not isinstance(turn, dict) or turn.get("role") != "tool":
             continue
-        content = str(turn.get("content") or "").lower()
-        if any(n in content for n in ("error", "traceback", "not found", "no such file", "failed", "exit 1")):
+        # Only the head of the result, and only unambiguous markers. Matching "error" anywhere in a
+        # tool response fires on any output that merely mentions error handling -- measured on 800
+        # Lambda seeds, that marked 93% of them as recoveries, which makes the flag useless and
+        # pushes 61% of the corpus to difficulty 5. A recovery is a tool that actually refused.
+        head = str(turn.get("content") or "")[:200].lower()
+        if any(
+            n in head
+            for n in (
+                "traceback (most recent",
+                "command not found",
+                "no such file",
+                "permission denied",
+                "exit status 1",
+                "error:",
+            )
+        ):
             return True
     return False
 
