@@ -118,7 +118,7 @@ be re-read after a fix.
 
 ## 4. The same task with a miner surface attached
 
-A round was opened on a harder task, `tc-log-rotation-order`, where the pinned model scores **0 of
+A round was opened on a harder task, `tc-log-rotation-order`, where the pinned model scored **0 of
 10**. A miner submitted two files of prose — no code:
 
 ```
@@ -152,6 +152,18 @@ field would make an hourly reward that always pays out and therefore says nothin
 
 Both outcomes are the design working. Prose alone moved a task the model could not do — which is
 the premise the competition rests on — and the bar did not bend to reward it.
+
+### That baseline has since been invalidated
+
+All ten of those baseline attempts ended on `step budget exhausted`, because the harness was charging
+every reasoning step against the action budget — 49% of it, measured. With that corrected the pinned
+model passes `tc-log-rotation-order` unaided on the first attempt.
+
+So the stage-by-stage record above is exactly what the pipeline did, and the guards fired for the
+right reasons, but the challenge was opened on a task the model *could* do given the steps to do it.
+A round has to be opened on a task that genuinely resists, and establishing which those are now needs
+re-measuring. This is the same defect class as everything else in this document: a resource limit
+recorded as a capability measurement.
 
 ## 5. Why 2 of 10 is not "nearly there"
 
