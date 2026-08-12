@@ -81,6 +81,18 @@ class ServedModelPolicy:
     tool_schemas: dict[str, dict[str, Any]]
     system: str = ""
     scratch_pad: bool = False
+    # Replay history as OpenAI function-calling messages rather than as dialect text.
+    #
+    # Off by default because the ATEM path depends on the text form: this harness passes `tools` with
+    # the request and the model's own chat template turns a `tool`-role message into
+    # `<tool_output name=...>`, which is exactly what it expects. That path measures 94.7%.
+    #
+    # A frontier model reached through an OpenAI-compatible gateway cannot read that history. It sees a
+    # `tool` message with no `tool_call_id` and no preceding `tool_calls`, so it cannot associate a
+    # result with a call it made. Measured on the first teacher rollout: 12 calls, 5 distinct, one
+    # command issued SIX times, then the step budget exhausted -- a frontier model looping because it
+    # never saw its own output. It reads as a hard task and is a malformed conversation.
+    native_tool_messages: bool = False
     _tokens: int = field(default=0, init=False)
     usage: Usage = field(default_factory=Usage, init=False)
     parse_failures: int = field(default=0, init=False)
@@ -133,6 +145,9 @@ class ServedModelPolicy:
         # leave the model with no tool definitions at all.
         messages = [{"role": "system", "content": system}] if system else []
         messages.append({"role": "user", "content": task.prompt})
+        if self.native_tool_messages:
+            return messages + _native_history(history)
+
         call_names: dict[str, str] = {}
         pending: list[str] = []
         for step in history:
@@ -204,6 +219,58 @@ class ServedModelPolicy:
         # tokens, so anything scoring efficiency is scoring against the protocol.
         self.parse_failures += len(turn.malformed)
         return steps_from_turn(turn)
+
+
+def _native_history(history: list[Step]) -> list[dict[str, Any]]:
+    """History as OpenAI function-calling messages: assistant `tool_calls`, `tool` with `tool_call_id`.
+
+    The distinction that matters is the id. Without it a model cannot tell which of its calls a result
+    belongs to -- and a model that cannot see its results reissues them, which is what the first
+    teacher rollout did six times before running out of budget.
+
+    Reasoning becomes assistant content on the same message as the calls, which is where these APIs
+    expect it. `arguments` is a JSON string, not a mapping, because that is what the wire format says
+    regardless of what any particular chat template prefers.
+    """
+    messages: list[dict[str, Any]] = []
+    reasoning: list[str] = []
+    calls: list[Step] = []
+
+    def flush() -> None:
+        nonlocal reasoning, calls
+        if not reasoning and not calls:
+            return
+        message: dict[str, Any] = {"role": "assistant", "content": "\n".join(r for r in reasoning if r)}
+        if calls:
+            message["tool_calls"] = [
+                {
+                    "id": call.call_id or f"c{index}",
+                    "type": "function",
+                    "function": {"name": call.tool or "", "arguments": json.dumps(call.args or {}, ensure_ascii=False)},
+                }
+                for index, call in enumerate(calls)
+            ]
+        messages.append(message)
+        reasoning, calls = [], []
+
+    for step in history:
+        if step.kind == THINKING:
+            reasoning.append(step.content)
+        elif step.kind == TOOL_CALL:
+            calls.append(step)
+        elif step.kind == TOOL_RESULT:
+            flush()
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": step.call_id or "c0",
+                    "content": step.content if step.ok else f"ERROR: {step.content}",
+                }
+            )
+        elif step.kind == FINAL:
+            reasoning.append(step.content)
+    flush()
+    return messages
 
 
 def _fingerprint(call: ParsedCall) -> tuple[str, str]:

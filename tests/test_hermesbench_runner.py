@@ -1147,3 +1147,78 @@ def test_both_notices_name_the_tasks_and_the_denominator():
         notice = withheld_absence_notice(["alpha", "beta"], 9, for_miner=for_miner)
         assert "2 of 9" in notice
         assert "alpha, beta" in notice
+
+
+def _history():
+    """One turn of real shape: reason, call, observe."""
+    from hermes.trajectory import THINKING, TOOL_CALL, TOOL_RESULT, Step
+
+    return [
+        Step(kind=THINKING, content="I should look at the directory first."),
+        Step(kind=TOOL_CALL, tool="terminal", args={"command": "ls -la"}, call_id="c0"),
+        Step(kind=TOOL_RESULT, content="README.md\nsrc/", call_id="c0", ok=True),
+    ]
+
+
+def _policy(*, native: bool):
+    from hermes.protocol import DIALECTS
+    from hermesbench.policy import ServedModelPolicy
+
+    return ServedModelPolicy(
+        complete=lambda messages, *, tools=None: ("", {}),
+        dialect=DIALECTS["atem"],
+        tool_schemas={"terminal": {"description": "d", "parameters": {"type": "object", "properties": {}}}},
+        native_tool_messages=native,
+    )
+
+
+def test_a_teacher_can_tell_which_call_a_result_belongs_to():
+    """The bug this mode exists for.
+
+    Replaying history as dialect text gives a `tool` message with no `tool_call_id` and no preceding
+    `tool_calls`. That is right for the pinned model -- its chat template turns a `tool` role into
+    `<tool_output name=...>` and that path measures 94.7% -- and unreadable to a frontier model behind
+    an OpenAI-compatible gateway, which cannot associate a result with a call it never saw itself make.
+
+    Measured on the first teacher rollout: 12 tool calls, 5 distinct, one command issued SIX times,
+    then the step budget exhausted. A model looping because it could not see its own output, which
+    reads in the metrics as a hard task.
+    """
+    from hermesbench.tasks import Task
+
+    task = Task(task_id="t", prompt="p", tools=("terminal",), verify="true", tags=())
+    messages = _policy(native=True)._messages(task, _history())
+
+    assistant = next(m for m in messages if m["role"] == "assistant")
+    assert assistant["tool_calls"][0]["id"] == "c0"
+    assert assistant["tool_calls"][0]["function"]["name"] == "terminal"
+
+    result = next(m for m in messages if m["role"] == "tool")
+    assert result["tool_call_id"] == "c0", "the id is the whole point"
+    assert result["content"] == "README.md\nsrc/", "and the content is plain, not wrapped in wire markup"
+
+
+def test_arguments_are_a_json_string_on_the_wire():
+    """The chat-template renderer wants a mapping for ATEM; the OpenAI wire format wants a string.
+    These are different consumers and the request is not the corpus."""
+    import json
+
+    from hermesbench.tasks import Task
+
+    task = Task(task_id="t", prompt="p", tools=("terminal",), verify="true", tags=())
+    messages = _policy(native=True)._messages(task, _history())
+    arguments = next(m for m in messages if m.get("tool_calls"))["tool_calls"][0]["function"]["arguments"]
+    assert isinstance(arguments, str)
+    assert json.loads(arguments) == {"command": "ls -la"}
+
+
+def test_the_student_path_is_untouched_by_default():
+    """Off by default, and it has to stay off: the ATEM path depends on the text form, and 94.7% of
+    the suite was measured through it."""
+    from hermesbench.tasks import Task
+
+    task = Task(task_id="t", prompt="p", tools=("terminal",), verify="true", tags=())
+    messages = _policy(native=False)._messages(task, _history())
+    assert all("tool_call_id" not in m for m in messages), "the pinned model's template reads the text form"
+    tool_message = next(m for m in messages if m["role"] == "tool")
+    assert "<tool_output" in tool_message["content"], "which is what its chat template consumes"

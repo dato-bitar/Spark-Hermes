@@ -796,6 +796,15 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--native-tool-messages",
+        action="store_true",
+        help="replay history as OpenAI function-calling messages (assistant tool_calls, tool messages "
+        "carrying tool_call_id) instead of as dialect text. Required for a TEACHER reached through an "
+        "OpenAI-compatible gateway: without the id it cannot tell which call a result belongs to, and a "
+        "model that cannot see its own results reissues them -- measured as 12 calls, 5 distinct, one "
+        "command six times. Leave off for the pinned model, whose chat template consumes the text form.",
+    )
+    parser.add_argument(
         "--allow-unsandboxed",
         action="store_true",
         help=(
@@ -966,6 +975,7 @@ def main(argv: list[str] | None = None) -> int:
             tool_schemas=schemas,
             system=system_prompt,
             scratch_pad=dialect.supports_scratch_pad,
+            native_tool_messages=args.native_tool_messages,
         )
 
     executor = LocalToolExecutor(allow_unsandboxed=args.allow_unsandboxed)
