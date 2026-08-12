@@ -134,12 +134,47 @@ def _observed_calls(row: dict[str, Any]) -> int:
     return count
 
 
-def read(source: str, *, limit: int | None = None, stats: SeedStats | None = None) -> Iterator[TaskDNA]:
+def _interleaved(columns: dict[str, list[Any]], total: int) -> list[int]:
+    """Row indices ordered so consecutive picks come from different buckets.
+
+    Buckets on the published category and subcategory, which is the cheapest honest proxy for what
+    the DNA will end up classifying as: reading every row through `extract` first would cost a full
+    pass to decide the order of a pass.
+    """
+    buckets: dict[tuple[str, str], list[int]] = {}
+    categories = columns.get("category") or [""] * total
+    subcategories = columns.get("subcategory") or [""] * total
+    for index in range(total):
+        key = (str(categories[index] or ""), str(subcategories[index] or ""))
+        buckets.setdefault(key, []).append(index)
+
+    order: list[int] = []
+    queues = [list(reversed(rows)) for rows in buckets.values()]
+    while queues:
+        queues = [queue for queue in queues if queue]
+        for queue in queues:
+            order.append(queue.pop())
+    return order
+
+
+def read(
+    source: str, *, limit: int | None = None, stats: SeedStats | None = None, stratify: bool = True
+) -> Iterator[TaskDNA]:
     """Stream one named source as DNA, skipping what this harness cannot use.
 
     Downloads through `huggingface_hub`, which caches, so a second pass over the same source costs
-    nothing. Streaming rather than materialising: these files are tens of thousands of rows and only
-    a few hundred are needed per generation run.
+    nothing.
+
+    `stratify` interleaves the output across (domain, environment, failure_mode) rather than reading
+    rows in file order, and it is on by default because file order is not random. These datasets are
+    grouped by category, so the first two hundred rows are largely one category -- measured on the
+    first generation runs, every accepted task came out `gen-syst-*`, all system_administration, all
+    from consecutive rows. A generator fed one bucket produces one world's worth of tasks, and a
+    corpus of near-duplicates is worth a fraction of its row count.
+
+    Round-robin rather than shuffle: a shuffle makes the mix random, which on a skewed source still
+    yields mostly the dominant bucket. Taking one from each bucket in turn makes the mix even until
+    the small buckets run dry, which is the best a fixed source allows.
     """
     if source not in SOURCES:
         raise DNAError(f"unknown seed source {source!r}; known: {sorted(SOURCES)}")
@@ -153,7 +188,8 @@ def read(source: str, *, limit: int | None = None, stats: SeedStats | None = Non
     table = pq.read_table(local)
     columns = {name: table.column(name).to_pylist() for name in table.column_names}
 
-    for index in range(table.num_rows):
+    order = _interleaved(columns, table.num_rows) if stratify else range(table.num_rows)
+    for index in order:
         if limit is not None and stats.yielded >= limit:
             return
         row = {name: values[index] for name, values in columns.items()}

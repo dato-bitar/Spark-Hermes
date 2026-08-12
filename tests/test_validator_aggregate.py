@@ -412,3 +412,50 @@ def test_the_summary_says_how_many_were_held_back():
         record = summary.to_record()
     assert record["sft_rows"] == 1
     assert record["truncated_skipped"] == 2
+
+
+def test_only_the_cheapest_verified_attempt_becomes_an_sft_row():
+    """SFT is imitation, so eight rollouts of one task are eight instructions to imitate, including
+    the wasteful ones. Measured on a real 8-repeat run: `recover-from-bad-command` contributed 8 rows
+    spanning 17,779 to 38,507 tokens -- the same task solved the same way, eight times, teaching that
+    the 38k path is as good as the 17k one."""
+    rows = sft_rows(
+        [
+            _ep(task="t1", tokens=38_000),
+            _ep(task="t1", tokens=17_000),
+            _ep(task="t1", tokens=25_000),
+            _ep(task="t2", tokens=9_000),
+        ]
+    )
+    assert len(rows) == 2, "one per task, not one per attempt"
+    assert {r["task_id"] for r in rows} == {"t1", "t2"}
+
+
+def test_the_losers_are_not_discarded_they_become_rejected_sides():
+    """A worse-but-correct trajectory is worthless as an imitation target and valuable as a contrast.
+    Dropping it from SFT and keeping it for pairs is the whole point of rolling out eight times."""
+    group = [
+        _ep(task="t1", tokens=20_000),
+        _ep(task="t1", tokens=22_000),
+        _ep(task="t1", tokens=24_000),
+        _ep(task="t1", tokens=90_000),
+    ]
+    assert len(sft_rows(group)) == 1
+    pairs, _ = preference_pairs(group)
+    assert pairs and pairs[0]["rejected_tokens"] == 90_000
+
+
+def test_a_truncated_attempt_cannot_win_by_being_cheap():
+    """It stopped early, so of course it used fewer tokens. Letting it win would make the corpus
+    prefer trajectories that gave up -- the cheapest way to finish is not to finish."""
+    rows = sft_rows([_ep(task="t1", tokens=5_000, truncated=True), _ep(task="t1", tokens=40_000)])
+    assert len(rows) == 1
+    assert rows[0]["task_id"] == "t1"
+
+
+def test_best_only_can_be_turned_off_and_says_how_many_it_dropped():
+    """The count matters: 150 rows built from 1,200 episodes reads as thin data unless the summary
+    says rejection sampling did that."""
+    group = [_ep(task="t1", tokens=10_000), _ep(task="t1", tokens=20_000)]
+    assert len(sft_rows(group, best_only=False)) == 2
+    assert len(sft_rows(group)) == 1

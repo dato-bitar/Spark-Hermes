@@ -66,6 +66,13 @@ class TaskDNA:
     failure_mode: str
     required_tools: tuple[str, ...]
     verification: str
+    # The seed dataset's own subcategory, kept as its own axis rather than folded into `domain`.
+    # Three published categories -- Agent Tools, Multi-Tool, Scheduling, roughly 2,200 rows between
+    # them -- all map to `system_administration`, so a prompt built from the domain alone told the
+    # generator the same thing for most of the corpus. The subcategory is the most specific label the
+    # source provides, and it is a label rather than content: shared across hundreds of rows, and
+    # describing none of them.
+    sub_domain: str = ""
     source: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -251,6 +258,7 @@ def extract(record: dict[str, Any], *, dataset: str, licence: str, index: int) -
         domain=_CATEGORY_DOMAINS.get(str(record.get("category") or "")) or _classify(text, _DOMAIN_SIGNALS, DOMAINS[0]),
         skills=skills,
         environment=_classify(text, _ENVIRONMENTS, "shell_workspace"),
+        sub_domain=str(record.get("subcategory") or "").strip(),
         difficulty=_difficulty(calls, recovered),
         horizon=(low, high),
         failure_mode=_failure_mode(text, recovered),
@@ -274,6 +282,30 @@ def _failure_mode(text: str, recovered: bool) -> str:
         if any(n in lowered for n in needles):
             return mode
     return "incorrect_assumption_about_api" if recovered else "misleading_documentation"
+
+
+def shingles(text: str) -> set[str]:
+    """Overlapping windows of `VERBATIM_WINDOW` characters, whitespace-normalised.
+
+    The unit both duplicate detection and the no-quotation guard work in. Character shingles rather
+    than words because these texts are half prose and half filenames, and a word tokeniser splits
+    `opt/webhookd/settings.yaml` into pieces that match nothing.
+    """
+    flat = re.sub(r"\s+", " ", text).strip().lower()
+    return {flat[i : i + VERBATIM_WINDOW] for i in range(max(0, len(flat) - VERBATIM_WINDOW) + 1)}
+
+
+def similarity(left: str, right: str) -> float:
+    """Jaccard overlap of two texts' shingles, 0.0 to 1.0.
+
+    Used to keep a generated corpus from filling up with the same task told twice. Two tasks that
+    share most of their prompt teach one thing and are counted as two, which inflates a corpus's row
+    count without adding to what it can teach.
+    """
+    a, b = shingles(left), shingles(right)
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
 
 
 def assert_abstract(dna: TaskDNA, seed_text: str) -> None:

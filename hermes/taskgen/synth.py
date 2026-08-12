@@ -83,6 +83,7 @@ Write a COMPLETELY NEW task from this specification. It is an abstraction, not a
 existing task -- there is no original to reproduce.
 
   domain:        {domain}
+  specialism:    {sub_domain}
   skills:        {skills}
   environment:   {environment}
   difficulty:    {difficulty} of 5
@@ -156,6 +157,7 @@ def build_prompt(dna: TaskDNA) -> str:
     """
     return INSTRUCTION.format(
         domain=dna.domain,
+        sub_domain=dna.sub_domain or "unspecified",
         skills=", ".join(dna.skills),
         environment=dna.environment,
         difficulty=dna.difficulty,

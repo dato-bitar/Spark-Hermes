@@ -33,10 +33,25 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from hermes.taskgen.dna import TaskDNA
+from hermes.taskgen.dna import TaskDNA, similarity
 from hermes.taskgen.gate import Verdict, gate
 from hermes.taskgen.seeds import SOURCES, SeedStats, read
 from hermes.taskgen.synth import SynthError, synthesise, to_task_yaml
+
+# Above this, two task prompts are the same task told twice. Chosen against the real corpus: two
+# hand-written tasks from the same family (tc-log-rotation-order and tc-nested-archive-manifest, both
+# ordering traps over a directory of files) score 0.06, so a threshold this high cannot mistake
+# "same skill" for "same task" -- which is the distinction that matters, since a corpus wants many
+# tasks per skill and no task twice.
+DUPLICATE_AT = 0.5
+
+
+def _is_duplicate(prompt: str, accepted_prompts: list[str]) -> tuple[bool, float]:
+    """Whether this task has already been generated, and how close the nearest one is."""
+    if not accepted_prompts:
+        return False, 0.0
+    nearest = max(similarity(prompt, other) for other in accepted_prompts)
+    return nearest >= DUPLICATE_AT, nearest
 
 
 def task_id_for(index: int, dna: TaskDNA) -> str:
@@ -165,6 +180,7 @@ def main(argv: list[str] | None = None) -> int:
     pool = read(args.source, limit=max_attempts, stats=stats)
 
     accepted: list[dict[str, Any]] = []
+    prompts: list[str] = []
     failures: Counter[str] = Counter()
     attempted = 0
 
@@ -185,7 +201,11 @@ def main(argv: list[str] | None = None) -> int:
                 if error:
                     failures[error.split(":")[0]] += 1
                     _save_reject(rejects_dir, f"attempt-{index:04d}", verdict, synthesised, error)
+                elif verdict is not None and verdict.accepted and _is_duplicate(synthesised.prompt, prompts)[0]:
+                    failures["duplicate"] += 1
+                    _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "duplicate")
                 elif verdict is not None and verdict.accepted:
+                    prompts.append(synthesised.prompt)
                     accepted.append(
                         _write_accepted(
                             args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
@@ -193,7 +213,9 @@ def main(argv: list[str] | None = None) -> int:
                     )
                     print(f"  accepted {accepted[-1]['task_id']} ({len(accepted)}/{args.count})", flush=True)
                 elif verdict is not None:
-                    failures[verdict.failed_check] += 1
+                    # `or "unnamed"` because an empty bucket is unreadable and, worse, was hiding a
+                    # real bug: accepted-past-target tasks were landing here with no failed_check.
+                    failures[verdict.failed_check or "unnamed"] += 1
                     _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "")
                 break
 
@@ -201,14 +223,22 @@ def main(argv: list[str] | None = None) -> int:
             error, verdict, synthesised = future.result()
             if error:
                 failures[error.split(":")[0]] += 1
-            elif verdict is not None and verdict.accepted and len(accepted) < args.count:
+            elif verdict is not None and verdict.accepted and _is_duplicate(synthesised.prompt, prompts)[0]:
+                failures["duplicate"] += 1
+            elif verdict is not None and verdict.accepted:
+                # Written even past the target. Submission already stopped at `--count`, so what is
+                # still in flight is bounded by the concurrency -- and discarding a task that cleared
+                # nine executed checks to keep a round number is the wrong trade. An earlier version
+                # dropped these AND counted them as rejections under an empty name, which made the
+                # generator look worse than it was and hid that the work was being thrown away.
+                prompts.append(synthesised.prompt)
                 accepted.append(
                     _write_accepted(
                         args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
                     )
                 )
             elif verdict is not None:
-                failures[verdict.failed_check] += 1
+                failures[verdict.failed_check or "unnamed"] += 1
                 _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "")
 
     report = {

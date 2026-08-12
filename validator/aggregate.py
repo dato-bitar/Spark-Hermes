@@ -105,6 +105,7 @@ class Summary:
     capped: list[str] = field(default_factory=list)
     reasoning_markup_stripped: int = 0
     truncated_skipped: int = 0
+    not_best_skipped: int = 0
 
     def to_record(self) -> dict[str, Any]:
         return {
@@ -123,6 +124,7 @@ class Summary:
             # than silently dropped: a corpus that is smaller than the verified count needs to say
             # why, and a rising number here means the action budgets are too tight.
             "truncated_skipped": self.truncated_skipped,
+            "not_best_skipped": self.not_best_skipped,
             # Excluded from SFT and *kept* as rejected examples. An episode that passed the
             # published check and failed the withheld one is the sharpest negative there is: it is
             # what fitting the visible assertions looks like. Training on it teaches that; training
@@ -192,17 +194,38 @@ def _render_context(episodes: list[Episode]) -> dict[str, Any]:
     return {"dialect": dialect, "tool_schemas": schemas}
 
 
-def sft_rows(episodes: list[Episode], *, system_policy: str = "keep") -> list[dict[str, Any]]:
-    """One messages record per verified episode.
+def sft_rows(episodes: list[Episode], *, system_policy: str = "keep", best_only: bool = True) -> list[dict[str, Any]]:
+    """The BEST verified episode per task, rendered as a messages record.
 
     Rendered by `hermes.format.to_messages_record`, which is what the training track already reads.
     Writing a second renderer here would give two definitions of what a trajectory looks like as
     training data, and they would drift on the first protocol change.
+
+    `best_only` is rejection sampling and is on by default. Keeping every verified attempt sounds
+    like more data and is not: measured on a real 8-repeat run, one task contributed 8 rows spanning
+    17,779 to 38,507 tokens -- the same task, solved the same way, eight times. SFT is imitation, so
+    that corpus teaches the model that the 38k path is as good as the 17k one, and pays for the
+    lesson in rows.
+
+    Cheapest verified attempt wins, which is the same quantity the promotion gate scores. The losers
+    are not wasted: `preference_pairs` puts them on the rejected side, which is where a worse-but-
+    correct trajectory is actually worth something.
     """
     from hermes.format import to_messages_record
     from hermes.trajectory import AgentTrajectory
 
     context = _render_context(episodes)
+    if best_only:
+        best: dict[str, Episode] = {}
+        for episode in episodes:
+            if not episode.verified or not episode.usable or episode.truncated:
+                continue
+            current = best.get(episode.task_id)
+            if current is None or episode.tokens < current.tokens:
+                best[episode.task_id] = episode
+        chosen = {id(episode) for episode in best.values()}
+        episodes = [episode for episode in episodes if id(episode) in chosen]
+
     rows: list[dict[str, Any]] = []
     for episode in episodes:
         if not episode.verified or not episode.usable:
@@ -381,6 +404,12 @@ def aggregate(
     # Counted off the rows themselves rather than tracked through the renderer, so the number always
     # describes what was actually written.
     summary.truncated_skipped = sum(1 for e in episodes if e.verified and e.usable and e.truncated)
+    # Verified attempts that lost to a cheaper one on the same task. Reported because a corpus of 150
+    # rows built from 1,200 episodes has to say so -- otherwise the row count reads as the data being
+    # thin rather than as rejection sampling having done its job.
+    summary.not_best_skipped = (
+        sum(1 for e in episodes if e.verified and e.usable and not e.truncated) - summary.sft_rows
+    )
     summary.reasoning_markup_stripped = sum(
         int(message.get("reasoning_markup_stripped") or 0) for row in rows for message in row["messages"]
     ) + sum(
