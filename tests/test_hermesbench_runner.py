@@ -1099,3 +1099,51 @@ def test_a_policy_that_only_thinks_still_terminates(tmp_path):
     result = run_episode(task, OnlyThinks(), Executor(), tmp_path)
     assert result.metrics.max_steps_hit, "it has to stop, and stop for the reason it actually stopped"
     assert sum(1 for s in result.trajectory.steps if s.kind == THINKING) == 4
+
+
+def test_a_miner_is_not_told_to_go_and_get_the_withheld_checks():
+    """The advice printed when withheld bodies are absent depends on who is running.
+
+    For an operator it is a configuration hint. Printed to a MINER the same text instructs them to
+    obtain the one thing the competition depends on them not having -- and a miner who somehow
+    followed it would be tuning against the very check that exists to catch tuning. Measured by
+    running `miner.cli evaluate` against a live model: both arms printed the operator's hint.
+    """
+    from hermesbench.runner import withheld_absence_notice
+
+    miner = withheld_absence_notice(["t1"], 1, for_miner=True)
+    assert "SPARKDISTILL_WITHHELD_ROOT" not in miner
+    assert "HERMESBENCH_WITHHELD_SALT" not in miner
+    assert "not yours to hold" in miner
+
+
+def test_the_miner_advice_says_what_the_absence_COSTS_them():
+    """ "Expected" alone leaves a miner thinking the absence is harmless. It is not: it means their
+    local numbers cannot distinguish a surface that solves the task from one that fits the published
+    assertions, which is the most useful thing they could know before submitting."""
+    from hermesbench.runner import withheld_absence_notice
+
+    miner = withheld_absence_notice(["t1"], 1, for_miner=True)
+    assert "published half" in miner
+    assert "overfit" in miner
+
+
+def test_the_operator_still_gets_the_configuration_hint():
+    """The operator holds the private tree and a missing withheld half is a misconfiguration they
+    can fix. Removing the hint to protect miners would break the people who need it."""
+    from hermesbench.runner import withheld_absence_notice
+
+    operator = withheld_absence_notice(["t1", "t2"], 5, for_miner=False)
+    assert "SPARKDISTILL_WITHHELD_ROOT" in operator
+    assert "HERMESBENCH_WITHHELD_SALT" in operator
+
+
+def test_both_notices_name_the_tasks_and_the_denominator():
+    """A warning that says "some tasks" is a warning nobody can act on, and the denominator is what
+    says whether this is one stale task or the whole suite."""
+    from hermesbench.runner import withheld_absence_notice
+
+    for for_miner in (True, False):
+        notice = withheld_absence_notice(["alpha", "beta"], 9, for_miner=for_miner)
+        assert "2 of 9" in notice
+        assert "alpha, beta" in notice

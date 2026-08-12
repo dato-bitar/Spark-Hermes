@@ -677,6 +677,46 @@ def repeated_from(results: list[EpisodeResult], *, repeats: int) -> RepeatedSuit
     )
 
 
+def withheld_absence_notice(missing: list[str], total: int, *, for_miner: bool) -> str:
+    """What to say when tasks commit to a withheld check whose body is not here.
+
+    Whose run this is decides what the advice should be. For an operator it is a configuration hint.
+    Printed to a MINER the same text instructs them to obtain the one thing the competition depends
+    on them not having -- and a miner who somehow followed it would be tuning against the very check
+    that exists to catch tuning. Measured by running `miner.cli evaluate` against a live model: both
+    arms printed the operator's hint.
+
+    The miner text says what the absence COSTS them rather than only that it is expected. "Expected"
+    alone leaves them thinking it is harmless; what it actually means is that their local numbers
+    cannot tell a surface that solves the task from one that fits the published assertions, which is
+    the most useful thing they could know before submitting.
+    """
+    from hermesbench.withheld import WITHHELD_ROOT_ENV
+
+    named = f"{', '.join(missing[:6])}{' ...' if len(missing) > 6 else ''}"
+    header = (
+        f"hermesbench: WARNING {len(missing)} of {total} tasks publish a withheld-check commitment "
+        f"whose check is not present, so `hidden_passed` will be null for them and no overfit "
+        f"signal is measured: {named}"
+    )
+    if for_miner:
+        advice = (
+            "This is expected: the withheld check is not yours to hold, and a run you can see the "
+            "answer to is not a test. What it means for your numbers is that this evaluation scores "
+            "only the published half -- the half a strategy can fit -- so a surface that raises the "
+            "published pass rate by fitting its assertions looks identical here to one that actually "
+            "solves the task. The validator scores both halves, and that difference is exactly what "
+            "`overfit` reports."
+        )
+    else:
+        advice = (
+            f"Set {WITHHELD_ROOT_ENV} and HERMESBENCH_WITHHELD_SALT to score the withheld half. "
+            "Without it a run reports only what the published verifier can see, which is the half a "
+            "strategy can fit."
+        )
+    return f"{header}\n{advice}"
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--suite", default=BENCH_VERSION, help="bench versions: 'v1', 'v0,v1', or 'all'")
@@ -803,7 +843,7 @@ def main(argv: list[str] | None = None) -> int:
     # Degrades rather than refuses when the private tree is absent, because a public checkout
     # must still be able to run the suite -- but it degrades loudly, and the count goes into
     # the summary so a run without the withheld half cannot be read as a clean one.
-    from hermesbench.withheld import WITHHELD_ROOT_ENV, WithheldError, overlay, unscorable
+    from hermesbench.withheld import WithheldError, overlay, unscorable
 
     try:
         tasks = overlay(tasks)
@@ -816,16 +856,7 @@ def main(argv: list[str] | None = None) -> int:
 
     missing = unscorable(tasks)
     if missing:
-        print(
-            f"hermesbench: WARNING {len(missing)} of {len(tasks)} tasks publish a withheld-check "
-            f"commitment whose check is not present, so `hidden_passed` will be null for them and "
-            f"no overfit signal is measured: {', '.join(missing[:6])}"
-            f"{' ...' if len(missing) > 6 else ''}\n"
-            f"Set {WITHHELD_ROOT_ENV} and HERMESBENCH_WITHHELD_SALT to score the withheld half. "
-            "Without it a run reports only what the published verifier can see, which is the half "
-            "a strategy can fit.",
-            file=sys.stderr,
-        )
+        print(withheld_absence_notice(missing, len(tasks), for_miner=bool(args.miner_dir)), file=sys.stderr)
 
     # Checked before anything is paid for. `build_manifest` refuses to fingerprint a task
     # with a withheld check and no salt, and discovering that after a suite has run means
