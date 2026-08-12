@@ -192,6 +192,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
+    import os as _os
+
+    if (
+        not _os.environ.get(args.api_key_env, "").strip()
+        and "://" in args.base_url
+        and "127.0.0.1" not in args.base_url
+    ):
+        # A remote endpoint with no credential produces one 401 per attempt, and a gateway that sees
+        # a run of them rate-limits the caller. Measured: 20 attempts, 20 failures, then a 120-second
+        # block -- caused by a shell prefix assignment that was expanded before it took effect, so the
+        # key arrived empty. The histogram said `generate: 20`, which is true and says nothing.
+        print(
+            f"hermes.taskgen: ${args.api_key_env} is empty and --base-url is remote ({args.base_url}). "
+            "Every attempt would fail authentication and a gateway will rate-limit the run for it. "
+            "Export the key first.",
+            file=sys.stderr,
+        )
+        return 2
+
     if args.salt_file is None or not args.salt_file.is_file():
         print(
             "hermes.taskgen: --salt-file is required. Every accepted task publishes a commitment to "
