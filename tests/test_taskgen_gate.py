@@ -53,6 +53,15 @@ set -e
 printf 'total=3\\nfirst=beta\\n' > answer.txt
 """
 
+# The same correct answer by a visibly different route: derived from the files rather than written
+# out as literals. A withheld check that only accepts REFERENCE fails this, which is the point.
+ALTERNATE = """
+set -e
+total=$(cat parts/*.txt | grep -vc '^#')
+first=$(for f in parts/*.txt; do printf '%s %s\\n' "$(sed -n 's/^# seq: //p' "$f")" "$(sed -n '2p' "$f")"; done | sort -n | head -1 | cut -d' ' -f2)
+printf 'total=%s\\nfirst=%s\\n' "$total" "$first" > answer.txt
+"""
+
 
 def _candidate(**overrides) -> Candidate:
     base = {
@@ -62,6 +71,7 @@ def _candidate(**overrides) -> Candidate:
         "withheld_verify": WITHHELD,
         "reference_solution": REFERENCE,
         "cheat_solution": CHEAT,
+        "alternate_solution": ALTERNATE,
     }
     base.update(overrides)
     return Candidate(**base)
@@ -151,6 +161,37 @@ def test_a_setup_that_hangs_is_killed_rather_than_holding_the_slot():
     verdict = gate(_candidate(setup="sleep 600"), timeout_s=2)
     assert not verdict.accepted
     assert verdict.failed_check == "setup_exits_zero"
+
+
+def test_a_withheld_check_that_grades_the_METHOD_is_rejected():
+    """The hole the first accepted generated task fell into.
+
+    Its withheld check demanded a *symlink* specifically. An agent that set an environment variable
+    or copied the file would have fixed the service for real and still failed -- scoring as `overfit`
+    while being correct. Checks 6 and 7 cannot see it: the reference solution came from the same
+    reply as the check and satisfies it by construction, so one solution can never prove a check is
+    outcome-based.
+    """
+    method_pinned = """
+set -e
+test -f answer.txt
+grep -q '^first=alpha$' answer.txt
+test -f .used_the_blessed_tool
+"""
+    blessed_reference = REFERENCE + "\ntouch .used_the_blessed_tool\n"
+    verdict = gate(_candidate(withheld_verify=method_pinned, reference_solution=blessed_reference))
+    assert not verdict.accepted
+    assert verdict.failed_check == "withheld_accepts_a_different_method"
+    assert "grades the METHOD" in verdict.detail
+
+
+def test_a_task_with_no_alternate_solution_skips_the_check_rather_than_failing_it():
+    """Backwards compatible on purpose: a hand-written task predates this field, and refusing those
+    would make the gate unusable on the suite it was modelled on. The check is simply not in
+    `checks_run`, so a reader can see it did not happen rather than assuming it passed."""
+    verdict = gate(_candidate(alternate_solution=""))
+    assert verdict.accepted
+    assert "withheld_accepts_a_different_method" not in verdict.checks_run
 
 
 @pytest.mark.parametrize("check", ALL_CHECKS)

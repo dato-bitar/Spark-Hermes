@@ -1,0 +1,244 @@
+"""Generate tasks at scale: seeds in, gated tasks out, every rejection counted.
+
+    python -m hermes.taskgen.cli --count 350 --out var/tasks/gen-1 \\
+        --base-url http://127.0.0.1:8001/v1 --model muse-glimmer-30b
+
+Parallel because generation is I/O bound on a served model and the gate is process bound, and the
+two overlap. Resumable because a run of several hundred will be interrupted, and re-generating a
+task that already passed costs a GPU minute for nothing.
+
+## The acceptance rate is the headline, not a footnote
+
+A generator that reports "300 tasks written" and not "300 of 900 attempts, 412 killed by the
+disagreement check" tells an operator nothing about whether their prompt is working. The failure
+histogram is where the information is: heavy `checks_disagree_on_a_cheat` means the instruction is
+not conveying what a withheld check is for; heavy `setup_is_deterministic` means it is not conveying
+determinism; heavy `parse` means the model is not following the output format at all and no amount
+of GPU time will fix it.
+
+## Nothing is written before it is accepted
+
+An accepted task's YAML, its withheld check and its salted commitment are written together, after
+the gate. A directory of maybe-tasks is worse than no directory: the point of the gate is that
+everything downstream can trust what is in here without re-checking it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+from hermes.taskgen.dna import TaskDNA
+from hermes.taskgen.gate import Verdict, gate
+from hermes.taskgen.seeds import SOURCES, SeedStats, read
+from hermes.taskgen.synth import SynthError, synthesise, to_task_yaml
+
+
+def task_id_for(index: int, dna: TaskDNA) -> str:
+    """Stable and readable: the domain says what it is, the number says which attempt made it."""
+    return f"gen-{dna.domain.split('_')[0][:4]}-{index:04d}"
+
+
+def _write_accepted(
+    out: Path,
+    withheld_out: Path,
+    synthesised: Any,
+    *,
+    salt: str,
+    max_steps: int,
+) -> dict[str, Any]:
+    from hermes.harness import derive_task_salt, salted_digest
+
+    task_id = synthesised.candidate.task_id
+    body = synthesised.candidate.withheld_verify
+    # Under the PER-TASK salt derived from the master, never the master itself: revealing one spent
+    # task's salt must not make every commitment still sealed brute-forceable.
+    commitment = salted_digest(body, derive_task_salt(salt, task_id))
+
+    out.mkdir(parents=True, exist_ok=True)
+    withheld_out.mkdir(parents=True, exist_ok=True)
+    (out / f"{task_id}.yaml").write_text(
+        to_task_yaml(synthesised, commitment=commitment, max_steps=max_steps), encoding="utf-8"
+    )
+    (withheld_out / f"{task_id}.sh").write_text(body, encoding="utf-8")
+    # The reference solution is kept beside the withheld check, not with the task. It is the proof
+    # the task is solvable and it is also a complete answer, so it lives on the private side.
+    (withheld_out / f"{task_id}.solution.sh").write_text(synthesised.candidate.reference_solution, encoding="utf-8")
+    return {"task_id": task_id, "commitment": commitment}
+
+
+def _save_reject(rejects: Path, task_id: str, verdict: Verdict | None, synthesised: Any, error: str) -> None:
+    """Everything about a rejected attempt, so the histogram is actionable rather than decorative.
+
+    A count of `setup_exits_zero` says the instruction is not producing runnable scripts. It does not
+    say WHY, and without the script and the shell's own complaint the only way to find out is to
+    generate more and read them by hand -- which is what this exists to stop.
+
+    Written for rejects only. An accepted task's artefacts are already on the public side.
+    """
+    rejects.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "task_id": task_id,
+        "error": error,
+        "failed_check": getattr(verdict, "failed_check", ""),
+        "detail": getattr(verdict, "detail", ""),
+        "checks_run": list(getattr(verdict, "checks_run", [])),
+    }
+    (rejects / f"{task_id}.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if synthesised is not None:
+        candidate = synthesised.candidate
+        for name, script in (
+            ("setup", candidate.setup),
+            ("verify", candidate.verify),
+            ("withheld", candidate.withheld_verify),
+            ("reference", candidate.reference_solution),
+            ("cheat", candidate.cheat_solution),
+        ):
+            (rejects / f"{task_id}.{name}.sh").write_text(script, encoding="utf-8")
+
+
+def _attempt(dna: TaskDNA, index: int, complete: Any, *, gate_timeout: int) -> tuple[str, Verdict | None, Any]:
+    task_id = task_id_for(index, dna)
+    try:
+        synthesised = synthesise(dna, task_id=task_id, complete=complete)
+    except SynthError as exc:
+        # A reply that could not be read is a distinct outcome from a task that was read and failed.
+        # Folding them together hides the case where the model has stopped following the format,
+        # which is the one case more GPU time cannot fix.
+        return f"parse: {exc}", None, None
+    except Exception as exc:  # noqa: BLE001 - a served model can fail in many ways; none should stop the run
+        return f"generate: {type(exc).__name__}: {exc}", None, None
+    verdict = gate(synthesised.candidate, timeout_s=gate_timeout)
+    return "", verdict, synthesised
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--count", type=int, default=50, help="tasks to ACCEPT, not attempts to make")
+    parser.add_argument("--max-attempts", type=int, default=0, help="0 means count * 4")
+    parser.add_argument("--source", default="lambda", choices=sorted(SOURCES))
+    parser.add_argument("--out", type=Path, default=Path("var/tasks/gen-1"))
+    parser.add_argument("--withheld-out", type=Path, default=None, help="defaults to <out>/withheld")
+    parser.add_argument("--base-url", default="http://127.0.0.1:8001/v1")
+    parser.add_argument("--model", default="muse-glimmer-30b")
+    parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
+    parser.add_argument("--concurrency", type=int, default=8)
+    parser.add_argument("--gate-timeout", type=int, default=120)
+    parser.add_argument("--salt-file", type=Path, default=None, help="master withheld salt; required to write")
+    parser.add_argument("--temperature", type=float, default=1.0, help="task variety wants sampling, not greedy")
+    args = parser.parse_args(argv)
+
+    if args.salt_file is None or not args.salt_file.is_file():
+        print(
+            "hermes.taskgen: --salt-file is required. Every accepted task publishes a commitment to "
+            "its withheld check, and a commitment needs the master salt. Without one the tasks would "
+            "have to ship their withheld check in the clear, which is not a withheld check.",
+            file=sys.stderr,
+        )
+        return 2
+    salt = args.salt_file.read_text(encoding="utf-8").strip()
+
+    withheld_out = args.withheld_out or (args.out / "withheld")
+    rejects_dir = args.out / "rejected"
+    already = {path.stem for path in args.out.glob("*.yaml")} if args.out.is_dir() else set()
+    if already:
+        print(f"resuming: {len(already)} task(s) already accepted in {args.out}")
+
+    import os
+
+    from hermesbench.policy import openai_completion
+
+    complete = openai_completion(
+        base_url=args.base_url,
+        model=args.model,
+        api_key=os.environ.get(args.api_key_env, ""),
+        temperature=args.temperature,
+    )
+
+    max_attempts = args.max_attempts or args.count * 4
+    stats = SeedStats()
+    pool = read(args.source, limit=max_attempts, stats=stats)
+
+    accepted: list[dict[str, Any]] = []
+    failures: Counter[str] = Counter()
+    attempted = 0
+
+    with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+        pending = {}
+        for index, dna in enumerate(pool):
+            if len(accepted) >= args.count:
+                break
+            if task_id_for(index, dna) in already:
+                continue
+            pending[executor.submit(_attempt, dna, index, complete, gate_timeout=args.gate_timeout)] = index
+            attempted += 1
+            if len(pending) < args.concurrency * 2:
+                continue
+            for future in as_completed(list(pending)):
+                del pending[future]
+                error, verdict, synthesised = future.result()
+                if error:
+                    failures[error.split(":")[0]] += 1
+                    _save_reject(rejects_dir, f"attempt-{index:04d}", verdict, synthesised, error)
+                elif verdict is not None and verdict.accepted:
+                    accepted.append(
+                        _write_accepted(
+                            args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
+                        )
+                    )
+                    print(f"  accepted {accepted[-1]['task_id']} ({len(accepted)}/{args.count})", flush=True)
+                elif verdict is not None:
+                    failures[verdict.failed_check] += 1
+                    _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "")
+                break
+
+        for future in as_completed(list(pending)):
+            error, verdict, synthesised = future.result()
+            if error:
+                failures[error.split(":")[0]] += 1
+            elif verdict is not None and verdict.accepted and len(accepted) < args.count:
+                accepted.append(
+                    _write_accepted(
+                        args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
+                    )
+                )
+            elif verdict is not None:
+                failures[verdict.failed_check] += 1
+                _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "")
+
+    report = {
+        "accepted": [entry["task_id"] for entry in accepted],
+        "attempted": attempted,
+        "acceptance_rate": round(len(accepted) / attempted, 3) if attempted else 0.0,
+        "rejected_by": dict(failures.most_common()),
+        "seeds": stats.to_record(),
+        "out": str(args.out),
+        "rejected_dir": str(rejects_dir),
+        "withheld_out": str(withheld_out),
+    }
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / "stage.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    print()
+    print(f"accepted {len(accepted)} of {attempted} attempt(s)  ({report['acceptance_rate']:.0%})")
+    for check, count in failures.most_common():
+        print(f"  {count:>4}  {check}")
+    print(f"\nwrote {args.out}/stage.json")
+    if failures:
+        print(f"every rejected attempt's scripts and the shell's own complaint are in {rejects_dir}")
+    if failures.get("checks_disagree_on_a_cheat", 0) > len(accepted):
+        print(
+            "\nMost rejections are the disagreement check. That is the instruction failing to convey "
+            "what a withheld check is FOR, not the model failing to write shell: it keeps producing a "
+            "second copy of the published check. Sharpen requirement 3 before spending more GPU time."
+        )
+    return 0 if accepted else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

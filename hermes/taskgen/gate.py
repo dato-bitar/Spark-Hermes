@@ -74,6 +74,10 @@ class Candidate:
     # optional: without it check 8 cannot run, and check 8 is the one that decides whether the
     # withheld check is worth its cost.
     cheat_solution: str
+    # A second correct solution that reaches the same outcome by a DIFFERENT route. Its only job is
+    # to prove the withheld check grades the outcome rather than the method. One solution can never
+    # show that: it was written in the same reply as the check and naturally satisfies it.
+    alternate_solution: str = ""
 
 
 @dataclass
@@ -238,6 +242,32 @@ def gate(candidate: Candidate, *, root: Path | None = None, timeout_s: int = STE
                 )
             verdict.checks_run.append("checks_disagree_on_a_cheat")
 
+            # 9. Method-pinning. The first generated task this gate accepted demanded a *symlink*
+            # specifically: an agent that set an environment variable or copied the file would have
+            # fixed the service for real and still failed, scoring as `overfit` while being correct.
+            # Checks 6 and 7 cannot see this, because the reference solution comes from the same
+            # reply as the check and uses the same method by construction.
+            if candidate.alternate_solution.strip():
+                other = Path(tempfile.mkdtemp(dir=scratch, prefix=f"{candidate.task_id}-alt-"))
+                shutil.rmtree(other)
+                shutil.copytree(workspace, other)
+                code, output = _run(candidate.alternate_solution, other, timeout=timeout_s)
+                if code != 0:
+                    raise _Failed(
+                        "withheld_accepts_a_different_method",
+                        f"the alternate solution did not run ({code}), so nothing was learned about "
+                        f"whether the withheld check grades the outcome or the method: {output}",
+                    )
+                code, output = _run(candidate.withheld_verify, other, timeout=timeout_s)
+                if code != 0:
+                    raise _Failed(
+                        "withheld_accepts_a_different_method",
+                        "a second solution that reaches the same outcome by a different route failed "
+                        f"the withheld check, so the check grades the METHOD rather than the result. "
+                        f"An agent solving this task correctly another way would score as overfit: {output}",
+                    )
+                verdict.checks_run.append("withheld_accepts_a_different_method")
+
             verdict.accepted = True
         except _Failed as failure:
             verdict.failed_check = failure.check
@@ -257,6 +287,7 @@ ALL_CHECKS = (
     "public_passes_reference",
     "withheld_passes_reference",
     "checks_disagree_on_a_cheat",
+    "withheld_accepts_a_different_method",
 )
 
 __all__ = ["ALL_CHECKS", "STEP_TIMEOUT_S", "Candidate", "GateError", "Verdict", "gate"]
