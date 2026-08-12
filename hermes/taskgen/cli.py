@@ -212,7 +212,11 @@ def main(argv: list[str] | None = None) -> int:
     stats = SeedStats()
     pool = read(args.source, limit=max_attempts, stats=stats)
 
-    accepted: list[dict[str, Any]] = []
+    # Seeded with what a previous run already wrote, so `--count` means "this many tasks in the
+    # directory" rather than "this many MORE". Counting only the current session's acceptances made a
+    # resumed run target 150 on top of the 116 it had just found -- and the progress line said 13/150
+    # while 129 files sat on disk, which is the kind of number nobody re-derives.
+    accepted: list[dict[str, Any]] = [{"task_id": task_id} for task_id in sorted(already)]
     prompts: list[str] = []
     failures: Counter[str] = Counter()
     attempted = 0
