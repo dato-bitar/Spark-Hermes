@@ -146,6 +146,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gate-timeout", type=int, default=120)
     parser.add_argument("--salt-file", type=Path, default=None, help="master withheld salt; required to write")
     parser.add_argument("--temperature", type=float, default=1.0, help="task variety wants sampling, not greedy")
+    parser.add_argument(
+        "--request-timeout",
+        type=int,
+        default=900,
+        help="seconds per generation. The default of 300 in `openai_completion` is tuned for an "
+        "agent turn; one generation here is six shell scripts, and at concurrency 8 the server "
+        "queues them. Measured on a real run: 8 of 29 attempts died on APITimeoutError -- 28% of "
+        "the GPU time spent, discarded, for a client setting rather than anything about the task.",
+    )
     args = parser.parse_args(argv)
 
     if args.salt_file is None or not args.salt_file.is_file():
@@ -162,7 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     rejects_dir = args.out / "rejected"
     already = {path.stem for path in args.out.glob("*.yaml")} if args.out.is_dir() else set()
     if already:
-        print(f"resuming: {len(already)} task(s) already accepted in {args.out}")
+        # Flushed, like the per-acceptance lines. Under nohup stdout is a pipe and therefore block
+        # buffered, so this sat unwritten while stderr's warnings appeared above it -- which reads as
+        # a resume that did not happen, on the one line whose whole job is to say that it did.
+        print(f"resuming: {len(already)} task(s) already accepted in {args.out}", flush=True)
 
     import os
 
@@ -172,6 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         base_url=args.base_url,
         model=args.model,
         api_key=os.environ.get(args.api_key_env, ""),
+        timeout_s=args.request_timeout,
         temperature=args.temperature,
     )
 
