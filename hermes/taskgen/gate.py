@@ -145,6 +145,22 @@ def _fingerprint(workspace: Path) -> str:
     return digest.hexdigest()
 
 
+def _copy_workspace(source: Path, root: Path, prefix: str) -> Path:
+    """A copy of a built workspace, links included rather than followed.
+
+    `symlinks=True` is load-bearing, not tidiness. These tasks create symlinks on purpose -- the very
+    first one this gate accepted turned on whether a config path was linked to the real file -- and a
+    setup that leaves a DANGLING link is a perfectly good workspace for a task about repairing it.
+    Following links makes `copytree` open the target, and a dangling target raises. That crash took
+    down a generation run at 116 accepted tasks: one malformed workspace ended the process rather
+    than the attempt.
+    """
+    target = Path(tempfile.mkdtemp(dir=root, prefix=prefix))
+    shutil.rmtree(target)
+    shutil.copytree(source, target, symlinks=True)
+    return target
+
+
 def _build(candidate: Candidate, root: Path, timeout: int) -> tuple[Path, str]:
     workspace = Path(tempfile.mkdtemp(dir=root, prefix=f"{candidate.task_id}-"))
     code, output = _run(candidate.setup, workspace, timeout=timeout)
@@ -201,9 +217,7 @@ def gate(candidate: Candidate, *, root: Path | None = None, timeout_s: int = STE
 
             # 5, 6, 7. The reference solution is what proves the task is solvable at all. Without it
             # a failed episode is unattributable: the model may be wrong, or the task may be.
-            solved = Path(tempfile.mkdtemp(dir=scratch, prefix=f"{candidate.task_id}-solved-"))
-            shutil.rmtree(solved)
-            shutil.copytree(workspace, solved)
+            solved = _copy_workspace(workspace, scratch, f"{candidate.task_id}-solved-")
             code, output = _run(candidate.reference_solution, solved, timeout=timeout_s)
             if code != 0:
                 raise _Failed("reference_solution_runs", f"the reference solution exited {code}: {output}")
@@ -221,9 +235,7 @@ def gate(candidate: Candidate, *, root: Path | None = None, timeout_s: int = STE
                 verdict.checks_run.append(name)
 
             # 8. The one that decides whether the withheld check earns its cost.
-            cheated = Path(tempfile.mkdtemp(dir=scratch, prefix=f"{candidate.task_id}-cheat-"))
-            shutil.rmtree(cheated)
-            shutil.copytree(workspace, cheated)
+            cheated = _copy_workspace(workspace, scratch, f"{candidate.task_id}-cheat-")
             _run(candidate.cheat_solution, cheated, timeout=timeout_s)
             public_code, _ = _run(candidate.verify, cheated, timeout=timeout_s)
             withheld_code, withheld_output = _run(candidate.withheld_verify, cheated, timeout=timeout_s)
@@ -248,9 +260,7 @@ def gate(candidate: Candidate, *, root: Path | None = None, timeout_s: int = STE
             # Checks 6 and 7 cannot see this, because the reference solution comes from the same
             # reply as the check and uses the same method by construction.
             if candidate.alternate_solution.strip():
-                other = Path(tempfile.mkdtemp(dir=scratch, prefix=f"{candidate.task_id}-alt-"))
-                shutil.rmtree(other)
-                shutil.copytree(workspace, other)
+                other = _copy_workspace(workspace, scratch, f"{candidate.task_id}-alt-")
                 code, output = _run(candidate.alternate_solution, other, timeout=timeout_s)
                 if code != 0:
                     raise _Failed(
@@ -272,6 +282,13 @@ def gate(candidate: Candidate, *, root: Path | None = None, timeout_s: int = STE
         except _Failed as failure:
             verdict.failed_check = failure.check
             verdict.detail = failure.detail
+        except OSError as exc:
+            # A generated setup can build a workspace this process cannot copy or read -- a dangling
+            # link, a permission bit, a name the filesystem refuses. That is a fact about the task and
+            # belongs in the histogram; letting it propagate ends the run instead of the attempt, and
+            # a generation run that dies at task 116 of 150 has thrown away the queue behind it.
+            verdict.failed_check = "workspace_is_unusable"
+            verdict.detail = f"{type(exc).__name__}: {exc}"
     finally:
         if made_scratch:
             shutil.rmtree(scratch, ignore_errors=True)
@@ -289,5 +306,11 @@ ALL_CHECKS = (
     "checks_disagree_on_a_cheat",
     "withheld_accepts_a_different_method",
 )
+
+# Not in ALL_CHECKS: that tuple is the ORDER the checks run in, and this is not a check. It is what a
+# verdict says when the workspace itself could not be handled -- a dangling link, a permission bit, a
+# name the filesystem refuses. A fact about the task, so it belongs in the histogram, but it is not a
+# stage anything passes.
+WORKSPACE_UNUSABLE = "workspace_is_unusable"
 
 __all__ = ["ALL_CHECKS", "STEP_TIMEOUT_S", "Candidate", "GateError", "Verdict", "gate"]

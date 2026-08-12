@@ -55,7 +55,20 @@ _SECTION_RE = re.compile(r"^===\s*(?P<name>[A-Z]+)\s*===\s*$", re.M)
 
 
 class SynthError(ValueError):
-    """A generation could not be read as a task."""
+    """A generation could not be read as a task.
+
+    Carries the reply it could not read. Without it the histogram says `parse: 9` and the only way to
+    learn why is to generate more and watch -- which is the third time in one night that "I cannot
+    see what failed" has been the thing blocking a fix.
+    """
+
+    def __init__(self, message: str, *, raw: str = "", reasoning: str = "") -> None:
+        super().__init__(message)
+        self.raw = raw
+        # Kept separately because for a reasoning model the two channels fail differently: an empty
+        # `content` beside a full `reasoning_content` means the budget went on deliberation and the
+        # answer was never written, which is a different problem from a malformed answer.
+        self.reasoning = reasoning
 
 
 @dataclass
@@ -218,8 +231,12 @@ def synthesise(dna: TaskDNA, *, task_id: str, complete: Callable[..., tuple[str,
     against whatever endpoint is already serving; no second client, no second set of retry semantics.
     """
     instruction = build_prompt(dna)
-    text, _ = complete([{"role": "user", "content": instruction}])
-    sections = parse(text)
+    text, raw = complete([{"role": "user", "content": instruction}])
+    reasoning = str(raw.get("reasoning_content") or "") if isinstance(raw, dict) else ""
+    try:
+        sections = parse(text)
+    except SynthError as exc:
+        raise SynthError(str(exc), raw=text, reasoning=reasoning) from exc
     candidate = Candidate(
         task_id=task_id,
         setup=_strip_fences(sections["SETUP"]),

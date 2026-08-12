@@ -194,6 +194,33 @@ def test_a_task_with_no_alternate_solution_skips_the_check_rather_than_failing_i
     assert "withheld_accepts_a_different_method" not in verdict.checks_run
 
 
+def test_a_workspace_holding_a_dangling_symlink_can_still_be_gated():
+    """These tasks create symlinks deliberately -- the first one this gate ever accepted turned on
+    whether a config path was linked to the real file -- and a setup that leaves a DANGLING link is a
+    perfectly good workspace for a task about repairing it.
+
+    `copytree` follows links by default, so a dangling target raised and took down a generation run
+    at 116 of 150 accepted: one malformed workspace ended the process rather than the attempt.
+    """
+    # At the top level, not inside parts/: the solutions glob parts/*.txt, and a dangling entry
+    # there would break them rather than exercising the copy step this test is about.
+    setup = SETUP + "\nln -s nowhere.txt dangling.txt\n"
+    verdict = gate(_candidate(setup=setup))
+    assert verdict.accepted, f"{verdict.failed_check}: {verdict.detail}"
+
+
+def test_a_workspace_the_gate_cannot_handle_rejects_the_task_not_the_run():
+    """An OSError from a generated workspace is a fact about the task. Letting it propagate ends the
+    run and throws away every attempt still queued behind it."""
+    from hermes.taskgen.gate import WORKSPACE_UNUSABLE
+
+    # A setup that builds a directory the copy step cannot traverse.
+    hostile = SETUP + "\nmkdir -p locked/inner\nchmod 000 locked\n"
+    verdict = gate(_candidate(setup=hostile))
+    assert not verdict.accepted
+    assert verdict.failed_check in (WORKSPACE_UNUSABLE, "setup_is_deterministic"), verdict.failed_check
+
+
 @pytest.mark.parametrize("check", ALL_CHECKS)
 def test_every_declared_check_is_reachable(check):
     """`ALL_CHECKS` is what the acceptance test asserts against, so a name listed there but never

@@ -105,6 +105,13 @@ def _save_reject(rejects: Path, task_id: str, verdict: Verdict | None, synthesis
         "checks_run": list(getattr(verdict, "checks_run", [])),
     }
     (rejects / f"{task_id}.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    if isinstance(synthesised, SynthError):
+        # A parse failure has no candidate, only a reply. Writing it is the whole point: `parse: 9`
+        # with nothing beside it cannot be diagnosed.
+        (rejects / f"{task_id}.reply.txt").write_text(synthesised.raw or "<empty content>", encoding="utf-8")
+        if synthesised.reasoning:
+            (rejects / f"{task_id}.reasoning.txt").write_text(synthesised.reasoning, encoding="utf-8")
+        return
     if synthesised is not None:
         candidate = synthesised.candidate
         for name, script in (
@@ -124,8 +131,9 @@ def _attempt(dna: TaskDNA, index: int, complete: Any, *, gate_timeout: int) -> t
     except SynthError as exc:
         # A reply that could not be read is a distinct outcome from a task that was read and failed.
         # Folding them together hides the case where the model has stopped following the format,
-        # which is the one case more GPU time cannot fix.
-        return f"parse: {exc}", None, None
+        # which is the one case more GPU time cannot fix. The reply travels with the error so the
+        # histogram can be acted on rather than only counted.
+        return f"parse: {exc}", None, exc
     except Exception as exc:  # noqa: BLE001 - a served model can fail in many ways; none should stop the run
         return f"generate: {type(exc).__name__}: {exc}", None, None
     verdict = gate(synthesised.candidate, timeout_s=gate_timeout)
@@ -146,6 +154,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--gate-timeout", type=int, default=120)
     parser.add_argument("--salt-file", type=Path, default=None, help="master withheld salt; required to write")
     parser.add_argument("--temperature", type=float, default=1.0, help="task variety wants sampling, not greedy")
+    parser.add_argument(
+        "--max-tokens",
+        type=int,
+        default=10000,
+        help="ceiling on one generation. Without one, a reply that starts repeating runs to the 32k "
+        "context limit, which at this throughput is the ~900s the timeouts were measuring -- a "
+        "runaway now ends as an unparseable reply in a fraction of the time. Set at 10k rather than "
+        "6k because 6k truncated real replies mid-section: `parse` jumped to 5 of 12 rejections, "
+        "which trades a slow waste for a fast one. A task with a heredoc-heavy setup genuinely "
+        "needs the room.",
+    )
     parser.add_argument(
         "--request-timeout",
         type=int,
@@ -186,6 +205,7 @@ def main(argv: list[str] | None = None) -> int:
         api_key=os.environ.get(args.api_key_env, ""),
         timeout_s=args.request_timeout,
         temperature=args.temperature,
+        max_tokens=args.max_tokens,
     )
 
     max_attempts = args.max_attempts or args.count * 4
