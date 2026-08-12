@@ -186,7 +186,20 @@ The eval suite is the 19 hand-written tasks and is **never trained on**.
 
 **Self-rollouts convert pass@N into pass@1. They cannot teach a task the model fails 0/N.** There is no
 trajectory to imitate. So the band where this adds capability is the *middle* — tasks the model
-sometimes solves — and the probe puts that band at 3 to 13 tasks out of 157.
+sometimes solves.
+
+Measured over 160 generated tasks, after every binding budget was raised and the affected tasks
+re-probed (442 episodes in total):
+
+```
+easy   144
+hard    12
+mixed    4     <-- the band DPO consumes
+```
+
+**Four tasks.** The re-probe moved 12 tasks `hard → easy` and 13 `mixed → easy`, and moved **none**
+toward harder. A batch of 160 gated, non-duplicated, deterministic tasks yielded four that produce a
+preference pair.
 
 Which means DPO from failures, the natural design, has a hole: a pair needs a `chosen`, and an all-fail
 task has none. Eight rejected sides and nothing to prefer them against.
