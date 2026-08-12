@@ -54,6 +54,22 @@ def _is_duplicate(prompt: str, accepted_prompts: list[str]) -> tuple[bool, float
     return nearest >= DUPLICATE_AT, nearest
 
 
+def _action_budget(dna: TaskDNA) -> int:
+    """Room to work, not the expected number of calls.
+
+    `max(6, horizon[1])` set the budget to the seed's own upper estimate, which leaves an agent no
+    slack for looking around, being wrong once, or checking its work -- and this harness counts
+    verification against a separate allowance precisely because it wants that behaviour. Measured on a
+    real probe: a task budgeted at 6 hit `step budget exhausted (6)` after three productive calls, and
+    a truncated episode is scored as a failure of the agent.
+
+    Twice the upper estimate, floored at 12. Generous on purpose: the step budget is not where
+    difficulty should come from -- a trap in the workspace is -- and a task made hard by an
+    ungenerous budget measures the budget.
+    """
+    return max(12, dna.horizon[1] * 2)
+
+
 def task_id_for(index: int, dna: TaskDNA) -> str:
     """Stable and readable: the domain says what it is, the number says which attempt made it."""
     return f"gen-{dna.domain.split('_')[0][:4]}-{index:04d}"
@@ -245,7 +261,7 @@ def main(argv: list[str] | None = None) -> int:
                     prompts.append(synthesised.prompt)
                     accepted.append(
                         _write_accepted(
-                            args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
+                            args.out, withheld_out, synthesised, salt=salt, max_steps=_action_budget(synthesised.dna)
                         )
                     )
                     print(f"  accepted {accepted[-1]['task_id']} ({len(accepted)}/{args.count})", flush=True)
@@ -271,7 +287,7 @@ def main(argv: list[str] | None = None) -> int:
                 prompts.append(synthesised.prompt)
                 accepted.append(
                     _write_accepted(
-                        args.out, withheld_out, synthesised, salt=salt, max_steps=max(6, synthesised.dna.horizon[1])
+                        args.out, withheld_out, synthesised, salt=salt, max_steps=_action_budget(synthesised.dna)
                     )
                 )
             elif verdict is not None:

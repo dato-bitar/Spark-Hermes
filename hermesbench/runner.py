@@ -720,6 +720,15 @@ def withheld_absence_notice(missing: list[str], total: int, *, for_miner: bool) 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--suite", default=BENCH_VERSION, help="bench versions: 'v1', 'v0,v1', or 'all'")
+    parser.add_argument(
+        "--task-root",
+        type=Path,
+        default=None,
+        help="directory holding suite subdirectories; defaults to hermesbench/tasks. `load_suite` has "
+        "always taken a root and nothing exposed it, so a generated suite had to be copied into the "
+        "tracked tree to be runnable -- which puts hundreds of disposable files in git and makes the "
+        "committed suite indistinguishable from a scratch one.",
+    )
     parser.add_argument("--tags", default="", help="comma-separated tag filter")
     parser.add_argument("--workspace-root", type=Path, required=True, help="scratch directory for task workspaces")
     parser.add_argument("--out", type=Path, default=None, help="write the run manifest here")
@@ -797,7 +806,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     tags = tuple(t.strip() for t in args.tags.split(",") if t.strip())
-    tasks = load_suite(args.suite, tags=tags)
+    tasks = load_suite(args.suite, root=args.task_root, tags=tags)
 
     # Shard a baseline across processes. A repeated baseline is the only thing that measures
     # the run-to-run spread `hermes.acceptance` refuses to judge a margin without, and it is
