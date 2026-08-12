@@ -278,10 +278,17 @@ def main(argv: list[str] | None = None) -> int:
                 failures[verdict.failed_check or "unnamed"] += 1
                 _save_reject(rejects_dir, synthesised.candidate.task_id, verdict, synthesised, "")
 
+    # The rate is over THIS session's work. Seeding `accepted` with the resumed ids made `--count`
+    # mean the right thing and immediately made this ratio mean the wrong one: 160 accepted over 49
+    # attempted reported an acceptance rate of 3.265. A resumed task was not attempted here, so it
+    # cannot be in the numerator of a rate whose denominator is attempts.
+    fresh = len(accepted) - len(already)
     report = {
         "accepted": [entry["task_id"] for entry in accepted],
         "attempted": attempted,
-        "acceptance_rate": round(len(accepted) / attempted, 3) if attempted else 0.0,
+        "resumed": len(already),
+        "accepted_this_session": fresh,
+        "acceptance_rate": round(fresh / attempted, 3) if attempted else 0.0,
         "rejected_by": dict(failures.most_common()),
         "seeds": stats.to_record(),
         "out": str(args.out),
@@ -292,7 +299,9 @@ def main(argv: list[str] | None = None) -> int:
     (args.out / "stage.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     print()
-    print(f"accepted {len(accepted)} of {attempted} attempt(s)  ({report['acceptance_rate']:.0%})")
+    if already:
+        print(f"{len(accepted)} task(s) in {args.out}: {len(already)} resumed, {fresh} added here")
+    print(f"accepted {fresh} of {attempted} attempt(s) this session  ({report['acceptance_rate']:.0%})")
     for check, count in failures.most_common():
         print(f"  {count:>4}  {check}")
     print(f"\nwrote {args.out}/stage.json")
