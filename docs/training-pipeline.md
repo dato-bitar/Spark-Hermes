@@ -51,7 +51,7 @@ that parses and does something other than what it reads like.
 
     python -m hermes.taskgen.cli --count 150 --concurrency 8 \
         --out var/tasks/gen-1 --salt-file <master salt> \
-        --base-url http://127.0.0.1:8001/v1 --model muse-glimmer-30b \
+        --base-url http://127.0.0.1:8001/v1 --model qwen3.8-27b \
         --request-timeout 900 --max-tokens 20000
 
 | # | check | why |

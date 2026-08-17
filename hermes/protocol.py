@@ -96,20 +96,31 @@ class Dialect:
     # preamble between them would train a Hermes 4 worker on a system turn it never saw.
     preamble: str = ""
     call_instruction: str = ""
-    # Which markup family the wire format belongs to. `hermes` is `<tool_call>` JSON; `atem` is
-    # the nested-element format Muse-Glimmer speaks, implemented in `hermes.atem`. Held here so
-    # the dispatch reads off data rather than off the dialect's name, which would make `atem-2`
-    # silently take the Hermes path.
+    # Which markup family the wire format belongs to, and therefore which module in
+    # `WIRE_MODULES` parses it. `hermes` is `<tool_call>` JSON; `atem` is the nested-element
+    # format Muse-Glimmer speaks; `qwen35` is the element-per-parameter format Qwen3.8-27B speaks.
+    #
+    # Held as a declared field rather than sniffed from the text, and `qwen35` is why that
+    # distinction is load-bearing rather than tidy: it writes `<tool_call>` and `<think>`, the
+    # Hermes tags, and differs only in the payload. Anything deciding the format by looking at
+    # tags gets it wrong on that dialect and gets it wrong in the expensive direction -- the JSON
+    # decoder reaches the payload and reports a malformed turn on every turn, so the harness's
+    # misconfiguration is recorded as the model failing to follow the format.
     family: str = "hermes"
     # Whether the tool definitions belong in the system prompt.
     #
-    # False for ATEM, and this is not a style choice. That template appends
-    # `render_system_meta(tools)` to EVERY system message, and with no native tools it emits
-    # `# Valid recipients: "self", "user".` -- while a tool call there is an assistant turn
-    # addressed `to=<tool namespace>`. So a prompt-embedded tool block tells the model about
-    # tools and the line right after it tells the model those recipients are invalid. The
-    # symptom is a model that never calls a tool, which is the failure shape this repo already
+    # False for both non-Hermes dialects, for different reasons, and neither is a style choice.
+    #
+    # ATEM's template appends `render_system_meta(tools)` to EVERY system message, and with no
+    # native tools it emits `# Valid recipients: "self", "user".` -- while a tool call there is an
+    # assistant turn addressed `to=<tool namespace>`. So a prompt-embedded tool block tells the
+    # model about tools and the line right after it tells the model those recipients are invalid.
+    # The symptom is a model that never calls a tool, which is the failure shape this repo already
     # warns about: zero tool calls, zero malformed turns, and a clean protocol score.
+    #
+    # QWEN35's template renders its own `# Tools` system turn from the `tools` kwarg -- the
+    # `<tools>` array and the call-format instruction as one block. Writing ours beside it
+    # conditions the model on two tool blocks in the same prompt, in two different spellings.
     tools_in_prompt: bool = True
     # How a *training row* must be shaped for this dialect's own chat template. Both were found by
     # rendering a real trajectory through the pinned template rather than by reading it, and both
@@ -120,10 +131,17 @@ class Dialect:
     # `assistant to=self` turn, and IGNORES `content` entirely on any message that has `tool_calls`.
     # So a `<think>` block is silently dropped on exactly the turns that reason toward a call, and
     # trained as literal visible prose on the turns that do not.
+    #
+    # False for QWEN35 as well, but NOT for that reason -- that template keeps `content` beside
+    # `tool_calls`. It renders `<think>` from `reasoning_content`, so a `<think>` block written into
+    # `content` would not vanish; it would render as literal prose right after the real one, and
+    # train the model to write its deliberation twice. Worth distinguishing, because "the template
+    # drops content" is the ATEM justification and does not apply here.
     reasoning_in_content: bool = True
     # `tool_arguments_json` -- Hermes templates take `function.arguments` as a JSON string. The ATEM
     # template refuses one outright (`a JSON string cannot be parsed in the HF jinja sandbox`) and
-    # requires a mapping, so every tool-calling row raises.
+    # requires a mapping, so every tool-calling row raises. QWEN35's iterates `arguments|items` and
+    # fails the same way, on `Can only get item pairs from a mapping`.
     tool_arguments_json: bool = True
 
     def __post_init__(self) -> None:
@@ -201,7 +219,68 @@ ATEM = Dialect(
     tool_arguments_json=False,
 )
 
-DIALECTS = {d.name: d for d in (HERMES_3, HERMES_4, ATEM)}
+# The wire format Qwen3.8-27B natively speaks, and the reason it needs its own entry is that it
+# is NOT distinguishable from Hermes by its tags. It writes `<tool_call>` and `<think>`, exactly
+# as Hermes 4 does. What differs is the payload inside the call tag -- `<function=NAME>` with one
+# `<parameter=KEY>` element each, where Hermes puts a JSON object -- so a reader checking which
+# tags appear concludes "Hermes" and is wrong, and `hermes.protocol`'s decoder then reports every
+# turn as malformed JSON rather than reporting nothing at all.
+#
+# `reasoning_tag` IS `think` here, unlike ATEM: deliberation is an inline block in the same
+# completion, not a separate channel. But `reasoning_in_content` is False, because the model's own
+# template renders a *training row's* reasoning from `message['reasoning_content']` and would drop
+# a `<think>` block written into `content`. Parsed from the text, trained from the field.
+QWEN35 = Dialect(
+    name="qwen35",
+    tool_result_role="tool",
+    reasoning_tag="think",
+    supports_scratch_pad=False,
+    pydantic_line=False,
+    family="qwen35",
+    tools_in_prompt=False,
+    reasoning_in_content=False,
+    tool_arguments_json=False,
+)
+
+DIALECTS = {d.name: d for d in (HERMES_3, HERMES_4, ATEM, QWEN35)}
+
+# Which module implements a family's render and parse sides. A registry rather than a chain of
+# `if family == "..."` branches, because that chain had to be edited in five separate files to add
+# the third format -- `hermes.protocol`, `hermes.format`, `hermes.conformance` and twice in
+# `hermesbench.policy` -- and a branch missed in one of them is not a crash. It is that one call
+# site silently keeps taking the Hermes path, which parses the wrong format and reports the
+# difference as the model's fault.
+#
+# `hermes` maps to None because it is implemented here, in this module.
+WIRE_MODULES: dict[str, str | None] = {
+    "hermes": None,
+    "atem": "hermes.atem",
+    "qwen35": "hermes.qwen35",
+}
+
+
+def wire_module(dialect: Dialect | None):
+    """The module implementing this dialect's markup, or None when it is plain Hermes.
+
+    Imported lazily and by name: every wire module reads `ParsedTurn` and `ProtocolError` from
+    this one, so a top-level import would be a cycle.
+    """
+    if dialect is None:
+        return None
+    try:
+        target = WIRE_MODULES[dialect.family]
+    except KeyError:
+        raise ProtocolError(
+            f"dialect {dialect.name!r} declares family {dialect.family!r}, which no module implements. "
+            "Register it in WIRE_MODULES; falling through to the Hermes path would parse the wrong "
+            "format and blame the model for the mismatch."
+        ) from None
+    if target is None:
+        return None
+    from importlib import import_module
+
+    return import_module(target)
+
 
 _PYDANTIC_SCHEMA = (
     '{"title": "FunctionCall", "type": "object", "properties": {"name": {"title": "Name", '
@@ -453,6 +532,65 @@ class ParsedTurn:
         return () if self.malformed else self.calls
 
 
+def coerce_text_arguments(arguments: dict[str, str], schema: dict[str, Any] | None) -> dict[str, Any]:
+    """Recover declared types from text argument values.
+
+    Shared by every non-Hermes wire format here, because every one of them has the same
+    problem: an element-per-parameter markup carries no types, so `true`, `null` and `12` all
+    arrive as strings and are indistinguishable from the strings `"true"`, `"null"` and `"12"`.
+    Hermes has no such trouble -- its payload is JSON and arrives typed.
+
+    Kept in this module rather than in whichever format needed it first. `hermes.atem` and
+    `hermes.qwen35` both call it, and the alternative -- a copy in each -- is the failure that
+    module's own docstring warns about for `ParsedTurn`: two implementations of one idea drift,
+    and then the same trajectory coerces differently depending on which base model produced it.
+
+    The tool's own JSON Schema is the only thing consulted. Anything it does not cover stays a
+    string, because sniffing -- "it looks like a number, make it one" -- turns `{"path": "123"}`
+    into `{"path": 123}` and hands a tool an integer where it declared a filename.
+    Under-recovering fails loudly at the tool boundary rather than quietly inside it.
+    """
+    properties = ((schema or {}).get("properties") or {}) if isinstance(schema, dict) else {}
+    out: dict[str, Any] = {}
+    for key, raw in arguments.items():
+        declared = properties.get(key) if isinstance(properties, dict) else None
+        kind = (declared or {}).get("type") if isinstance(declared, dict) else None
+        out[key] = _cast_text(raw, kind)
+    return out
+
+
+def _cast_text(raw: str, kind: str | None) -> Any:
+    if kind in (None, "string"):
+        return raw
+    text = raw.strip()
+    try:
+        if kind == "boolean":
+            if text in ("true", "false"):
+                return text == "true"
+            return raw
+        if kind == "integer":
+            return int(text)
+        if kind == "number":
+            return float(text)
+        if kind in ("object", "array"):
+            loaded = json.loads(text)
+            # The declared type still has to hold: a schema saying `array` and a payload holding
+            # an object is a disagreement, and passing it through would move the failure into the
+            # tool where the reason is no longer visible.
+            if kind == "array" and not isinstance(loaded, list):
+                return raw
+            if kind == "object" and not isinstance(loaded, dict):
+                return raw
+            return loaded
+        if kind == "null":
+            return None if text == "null" else raw
+    except (TypeError, ValueError):
+        # Unparseable against its declared type. Returned as the text it was, so the tool refuses
+        # it with the real value in the message instead of receiving a silently coerced one.
+        return raw
+    return raw
+
+
 def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     seen: dict[str, Any] = {}
     for key, value in pairs:
@@ -515,12 +653,8 @@ def parse_turn(
     show `arguments` first, so both are in the training distribution and a parser insisting
     on one would reject half of Nous's own examples.
     """
-    if dialect is not None and dialect.family == "atem":
-        # Imported here rather than at module scope: `hermes.atem` reads `ParsedTurn` and
-        # `ProtocolError` from this module, so a top-level import would be a cycle.
-        from hermes.atem import parse_turn as parse_atem
-
-        return parse_atem(content, reasoning=reasoning, schemas=schemas)
+    if (wire := wire_module(dialect)) is not None:
+        return wire.parse_turn(content, reasoning=reasoning, schemas=schemas)
 
     calls: list[ParsedCall] = []
     malformed: list[str] = []

@@ -69,22 +69,56 @@ REFERENCE_TOOLS = [
 ]
 
 
-# Markers `hermes.atem` parses. Pinning these against the model's own committed template is what
-# a rendered-prompt pin does for Hermes: it makes a format change require editing a checked-in
-# artifact in the same commit. If a later revision of the model renames a tag, this fails and the
-# parser is revisited -- rather than the parser quietly returning zero calls forever.
-ATEM_MARKERS = (
-    "<atem:function_calls>",
-    "</atem:function_calls>",
-    '<atem:invoke name="',
-    '<atem:parameter name="',
-    "</atem:parameter>",
-    '<tool_output name="',
-    "</tool_output>",
-    "to=self",
-    "# Valid recipients:",
-    "Reasoning strength:",
-)
+# Markers each non-Hermes parser depends on, keyed by dialect. Pinning these against the model's
+# own committed template is what a rendered-prompt pin does for Hermes: it makes a format change
+# require editing a checked-in artifact in the same commit. If a later revision of the model
+# renames a tag, this fails and the parser is revisited -- rather than the parser quietly
+# returning zero calls forever.
+#
+# Keyed by dialect rather than held as one ATEM-shaped tuple, because the second such format
+# arrived and a single shared list would have to be the INTERSECTION of what both parsers need --
+# which for these two is almost nothing, since one of them writes Hermes's own tags.
+WIRE_MARKERS: dict[str, tuple[str, ...]] = {
+    "atem": (
+        "<atem:function_calls>",
+        "</atem:function_calls>",
+        '<atem:invoke name="',
+        '<atem:parameter name="',
+        "</atem:parameter>",
+        '<tool_output name="',
+        "</tool_output>",
+        "to=self",
+        "# Valid recipients:",
+        "Reasoning strength:",
+    ),
+    # Qwen3.8-27B. Every entry is a substring of a jinja string literal in the model's own
+    # template, chosen so that a rename breaks the check.
+    #
+    # `<function=` and `<parameter=` carry the trailing `=` deliberately: it is the single
+    # character separating this format from the attribute spelling every other XML-ish tool
+    # format uses, and it is what `hermes.qwen35` keys on. A revision switching to
+    # `<function name="...">` would leave `<function` intact and the parser returning nothing.
+    "qwen35": (
+        "<tool_call>",
+        "</tool_call>",
+        "<function=",
+        "</function>",
+        "<parameter=",
+        "</parameter>",
+        "<tool_response>",
+        "</tool_response>",
+        "<think>",
+        "</think>",
+        # The reasoning block is opened by the GENERATION PROMPT, which is why hermes.qwen35
+        # handles a completion whose `</think>` has no opener. If this disappears, that whole
+        # branch is dead code and the balanced-pair path is the only real one.
+        "add_generation_prompt",
+        # Results come back inside a `user` turn, not a `tool` one -- the template rewrites the
+        # role. Pinned because `Dialect.tool_result_role` says `tool` and the two only agree
+        # because the template does the conversion.
+        "<|im_start|>user",
+    ),
+}
 
 
 def template_path(dialect_name: str) -> Path:
@@ -128,7 +162,15 @@ def drift(dialect_name: str) -> str:
         # Nothing of ours to render, so the check is the other way round: every marker the parser
         # depends on must still be in the model's template. A comparison of the committed file
         # against itself would be a check that cannot fail.
-        absent = [m for m in ATEM_MARKERS if m not in expected]
+        markers = WIRE_MARKERS.get(dialect_name)
+        if markers is None:
+            return (
+                f"{dialect_name} renders its own tool block, so its pin is the model's chat "
+                f"template -- but no marker set is registered for it in WIRE_MARKERS. Without one "
+                "this check reads the file and asserts nothing about it, which is worse than "
+                "having no check because it reports success."
+            )
+        absent = [m for m in markers if m not in expected]
         if absent:
             return (
                 f"{dialect_name}: the pinned chat template no longer contains {absent!r}, which "

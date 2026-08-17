@@ -1,14 +1,14 @@
-![Spark-Hermes-Glimmer-30B banner](docs/images/spark-hermes-glimmer.png)
+![Spark-Hermes-3.8-27B banner](docs/images/spark-hermes-3.8-27b.png)
 
 # SPARK-HERMES
 
 ### Verified agent intelligence, continuously improved by SN74 Gittensor
 
-**Target:** `Spark-Hermes-Glimmer-30B`
-**Development base:** pinned [`meta-models/Muse-Glimmer-30B`](https://huggingface.co/meta-models/Muse-Glimmer-30B) @ `97c77dff`, served bf16
+**Target:** `Spark-Hermes-3.8-27B`
+**Base:** pinned [`Qwen/Qwen3.8-27B`](https://huggingface.co/Qwen/Qwen3.8-27B) @ `1d4bf0f2`, served bf16
 **Train and score on:** RTX PRO 6000 Blackwell Server Edition, 96 GB, bf16
 **Ship as:** GGUF, sized for a 32 GB card
-**Runtime:** Hermes 4, over the ATEM wire format the base natively speaks
+**Runtime:** Hermes 4, over the `qwen35` wire format the base natively speaks
 **Competition:** verified rollout optimization
 **Execution:** NVIDIA Confidential Computing enabled; Intel TDX quote verification implemented,
 no approved guest measurement pinned yet
@@ -238,13 +238,17 @@ same bytes on every miner
 not merely the same model name.
 
 **Nothing in that chain is quantized.** [`hermes/base_model.json`](hermes/base_model.json) pins
-`meta-models/Muse-Glimmer-30B` at revision `97c77dff` with no quantization field, and it is served
-in bf16. The competition is decided on those bytes.
+`Qwen/Qwen3.8-27B` at revision `1d4bf0f2` with no quantization field, and it is served in bf16.
+The competition is decided on those bytes.
 
 `kv_bytes_measured` is `null` there rather than carrying the figure the previous pin held. That
-number — 33.36 GiB of KV pool holding 507,539 tokens — was measured on Qwen3.6-27B, and a
-measurement of one model reading as a measurement of another is worse than having none: stale and
-fresh look identical and nothing downstream can tell them apart.
+number — a 7.52 GiB full-attention pool holding 606,251 tokens — was measured on SGLang against
+`meta-models/Muse-Glimmer-30B`, a model with a different layer count, KV-head count and head_dim.
+A measurement of one model reading as a measurement of another is worse than having none: stale
+and fresh look identical and nothing downstream can tell them apart. The KV figures for this base
+are derived from `config.json` and **have not been confirmed against a live server** — which is
+the same kind of number that turned out to be wrong by 4× on the previous base, until a server
+contradicted it.
 
 <a id="two-tiers-bf16-to-train-gguf-to-ship"></a>
 
@@ -689,51 +693,75 @@ See [wall time is reported and never gates the crown](#wall-time-is-reported-and
 ## Model path
 
 ```text
-meta-models/Muse-Glimmer-30B  @ 97c77dff        (bf16, 96 GB card)
+Qwen/Qwen3.8-27B  @ 1d4bf0f2                    (bf16, 96 GB card)
     ↓
-Hermes 4 agent over the ATEM wire format
+Hermes 4 agent over the qwen35 wire format
     ↓
 verified rollout-evolution corpus
     ↓
-Spark-Hermes-Glimmer-30B                        (bf16 — what the competition scores)
+Spark-Hermes-3.8-27B                            (bf16 — what the competition scores)
     ↓
 GGUF                                            (32 GB card — re-measured, not inherited)
 ```
 
 The exact revision and artifact digest — not the marketing name — define a model epoch. The base is
 pinned in [`hermes/base_model.json`](hermes/base_model.json) at
-`97c77dff50b2797bcc558fa2d909761dbc575c59`, because a name resolves to whatever a repository holds
+`1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0`, because a name resolves to whatever a repository holds
 when someone runs it: two runs could agree on every other digest here and still have trained on
 different weights.
 
-Three things about this base are easy to get wrong, and all three are recorded with the pin.
+Four things about this base are easy to get wrong, and all four are recorded with the pin.
 
-**It does not speak Hermes.** Its own chat template renders tool calls as
-`<atem:function_calls>` / `<atem:invoke>` / `<atem:parameter>`, returns results in `<tool_output>`,
-and puts deliberation on a `self` recipient. There is no `<tool_call>` and no `<think>` anywhere in
-it. That is why [`hermes/atem.py`](hermes/atem.py) exists, and the dialect was established by
-reading the model and then confirmed by generating from it — not chosen for it. Nothing forks
-Hermes: the pinned artifact for ATEM is upstream's *own* template, committed byte for byte at
-[`hermes/templates/chat-template-atem.jinja`](hermes/templates/chat-template-atem.jinja), and the
-check runs the other way round — every marker the parser depends on must still be present in it.
-Whether that trade serves the project's goals, what forcing Hermes at this base measurably cost, and
-the one alternative worth taking seriously: [`docs/why-atem.md`](docs/why-atem.md).
+**It does not speak Hermes — and it looks like it does.** This is the one that costs people time.
+Its own chat template writes `<tool_call>`, `<tool_response>` and `<think>`: every one of them the
+Hermes spelling. What differs is the payload inside the call tag — one element per parameter, where
+Hermes puts a JSON object:
 
-**It is multimodal, so "30B" is not 30B of text parameters** and every text hyperparameter lives
+```text
+Hermes 4        <tool_call>{"name": "terminal", "arguments": {"command": "ls"}}</tool_call>
+
+qwen35          <tool_call>
+                <function=terminal>
+                <parameter=command>
+                ls
+                </parameter>
+                </function>
+                </tool_call>
+```
+
+So the dialect cannot be established by looking at tags, and getting it wrong does not produce a
+model that appears to call no tools. It produces one that appears to call tools and get the syntax
+wrong **every single turn** — `hermes.protocol` finds `<tool_call>`, hands `<function=terminal>` to
+a JSON decoder, and reports a malformed turn. `malformed_turns` is one of the two numbers the
+promotion gate bounds, so the harness's mistake reads as the model's.
+
+That is why [`hermes/qwen35.py`](hermes/qwen35.py) exists and why the dispatch keys on a declared
+family rather than on which tags a completion contains. Nothing forks Hermes: the pinned artifact
+for `qwen35` is upstream's *own* template, committed byte for byte at
+[`hermes/templates/chat-template-qwen35.jinja`](hermes/templates/chat-template-qwen35.jinja), and
+the check runs the other way round — every marker the parser depends on must still be present in
+it. Whether that trade serves the project's goals, what forcing Hermes measurably cost at the
+previous base, and the one alternative worth taking seriously:
+[`docs/wire-dialects.md`](docs/wire-dialects.md).
+
+**It is multimodal, so "27B" is not 27B of text parameters** and every text hyperparameter lives
 under `text_config`. Anything reading the top level of `config.json` for `hidden_size` gets `None`
 and computes a memory budget out of nothing. `AutoModelForCausalLM` refuses the config outright; the
-class is `AutoModelForImageTextToText`.
+class is `AutoModelForImageTextToText`. Three bases in a row have had this shape.
 
-**Its KV cache lives in 13 of 52 layers.** `layer_types` is 39 `sliding_attention` + 13
-`full_attention`, and a sliding layer holds at most 2048 tokens rather than growing with the
-context. Counting all 52 overstates the per-token cost by 4×, which is how a card that runs this
-model comfortably gets ruled out on paper. With two KV heads, the whole 131K context costs under a
-gigabyte in fp8.
+**Its KV cache lives in 16 of 64 layers.** `layer_types` is 48 `linear_attention` + 16
+`full_attention` — one full layer every four — and a linear layer holds a fixed per-sequence
+recurrent state rather than growing with the context. Counting all 64 overstates the per-token cost
+by 4×, which is how a card that runs this model comfortably gets ruled out on paper. The derived
+figure is 32,768 B/token at fp8, so the full 262K context is ~8.6 GB beside ~56 GB of bf16 weights.
+**Derived, not measured** — see above.
 
-**Serving needs SGLang**, from the upstream `muse-glimmer` branch: vLLM 0.27.0 has no native
-support and its transformers fallback returns incoherent output for this architecture.
-[`docs/serving-muse-glimmer.md`](docs/serving-muse-glimmer.md) has the evidence and the eight
-startup failures behind it, none of which were the model.
+**Serving has not been brought up against this pin.** The previous base needed SGLang from a branch
+after eight startup failures; this is a Qwen release architecture and that may not apply, but "may
+not apply" is not a recipe. [`docs/serving-qwen3.8.md`](docs/serving-qwen3.8.md) records what is
+known, what does not transfer, and the checklist that would make it trustworthy;
+[`docs/serving-muse-glimmer.md`](docs/serving-muse-glimmer.md) keeps the previous base's evidence,
+which was real and is now history.
 
 ---
 
@@ -824,11 +852,11 @@ python -m miner check --dir ./my-surface
 
 # rehearse against the baseline before spending anything on an attested run
 python -m miner evaluate --dir ./my-surface --task tc-log-rotation-order \
-  --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+  --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 
 # which rule is carrying the result, with the leader re-measured on fresh episodes
 python -m miner search --dir ./my-surface --task tc-log-rotation-order \
-  --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+  --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 ```
 
 `check` proves the pinned runtime will load a surface. It does not prove the surface helps, and
@@ -847,7 +875,7 @@ python -m validator.round_loop open --round r-001 \
 uv run uvicorn validator.api:app --host 127.0.0.1 --port 8080
 
 # after the window closes: run, score, record, then crown and publish
-python -m validator.judge judge --round r-001 --model qwen3.6-27b --repeats 10
+python -m validator.judge judge --round r-001 --model qwen3.8-27b --repeats 10
 python -m validator.crown select
 python -m validator.audit build --round r-001 --master-salt-env SPARK_MASTER_SALT
 python -m validator.aggregate --out var/datasets
@@ -860,13 +888,22 @@ scripts/serve_agent.sh /path/to/model my-model 8001
 # -> http://127.0.0.1:8001/v1
 ```
 
-**SGLang**, and that is a measurement rather than a preference. Serving Muse-Glimmer-30B on
-2026-08-11: vLLM 0.27.0 has no native support for the architecture, and its `--model-impl
-transformers` fallback served the model while returning ten tokens of multilingual noise. SGLang
-returned correct tool calls. Plain transformers on the same weights, revision and card agreed with
-SGLang, so the fallback was what was broken — not the model.
-[`docs/serving-muse-glimmer.md`](docs/serving-muse-glimmer.md) has the evidence, and the eight
+**SGLang**, and that was a measurement rather than a preference — taken against the *previous*
+base. Serving Muse-Glimmer-30B on 2026-08-11: vLLM 0.27.0 had no native support for the
+architecture, and its `--model-impl transformers` fallback served the model while returning ten
+tokens of multilingual noise. SGLang returned correct tool calls. Plain transformers on the same
+weights, revision and card agreed with SGLang, so the fallback was what was broken — not the model.
+[`docs/serving-muse-glimmer.md`](docs/serving-muse-glimmer.md) has that evidence, and the eight
 startup failures that preceded it, none of which were the model.
+
+**None of it has been re-verified against `Qwen/Qwen3.8-27B`,** which is a different architecture
+on a different engine version. `scripts/serve_agent.sh` therefore refuses to start for this dialect
+until `SERVE_TOOL_PARSER` is set explicitly, rather than defaulting to the previous base's `muse`
+parsers. That refusal is deliberate: without a tool-call parser SGLang omits the tool definitions
+from the prompt entirely, and the first working ATEM run came back with `prompt_tokens=77` and a
+model wondering aloud which command to use, because it had never been told it had any tools. That
+does not look like a serving bug — it looks like a model that will not call tools, and it scores as
+one. [`docs/serving-qwen3.8.md`](docs/serving-qwen3.8.md) has the checklist.
 
 The runner talks OpenAI-compatible HTTP, so any engine can serve it. What is not
 interchangeable is what comes back: a server that parses the wire format itself returns structured
@@ -929,13 +966,13 @@ six and a half hours sequential and under an hour at 8.
 ```bash
 # rollouts -> datasets -> adapters
 python -m validator.aggregate --out var/datasets
-scripts/train.sh hermes/recipes/spark-hermes-glimmer-30b/stage-c-tools.yaml
+scripts/train.sh hermes/recipes/spark-hermes-3.8-27b/stage-c-tools.yaml
 
 # fold the adapter into the base, after checking it is the right adapter
-scripts/merge_lora.sh hermes/recipes/spark-hermes-glimmer-30b/stage-c-tools.yaml
-#  -> outputs/spark-hermes-glimmer-30b/stage-c/merged   <- what stage D starts from
+scripts/merge_lora.sh hermes/recipes/spark-hermes-3.8-27b/stage-c-tools.yaml
+#  -> outputs/spark-hermes-3.8-27b/stage-c/merged   <- what stage D starts from
 
-scripts/train.sh hermes/recipes/spark-hermes-glimmer-30b/stage-d-preference.yaml
+scripts/train.sh hermes/recipes/spark-hermes-3.8-27b/stage-d-preference.yaml
 
 # benchmark the candidate the same way, then ask whether it replaces what is served
 python -m hermes.promotion --incumbent runs/m0.json --candidate runs/m1.json

@@ -9,7 +9,7 @@ import yaml
 from hermes.base_model import PIN_PATH, BaseModelError, load
 from hermes.merge import MERGED_DIRNAME
 
-RECIPE_DIR = Path("hermes/recipes/spark-hermes-glimmer-30b")
+RECIPE_DIR = Path("hermes/recipes/spark-hermes-3.8-27b")
 
 
 def _recipes():
@@ -18,7 +18,7 @@ def _recipes():
 
 def test_the_pin_loads_and_names_a_real_commit():
     pin = load()
-    assert pin.repository == "meta-models/Muse-Glimmer-30B"
+    assert pin.repository == "Qwen/Qwen3.8-27B"
     assert len(pin.revision) == 40
 
 
@@ -101,41 +101,57 @@ def test_at_most_one_stage_starts_from_a_derived_base():
     assert derived == {"stage-d-preference.yaml"}
 
 
-@pytest.mark.parametrize("recipe", _recipes(), ids=lambda p: p.name)
-def test_no_recipe_trains_against_the_unpublished_model(recipe):
-    """Qwen3.8-27B is the Phase 1 target and is not published. The only repositories under
-    that name are third-party derivatives with no official base, so a recipe pointing at it
-    cannot be pinned and would 404 for anyone who ran it.
+def test_the_pin_names_the_vendors_own_repository():
+    """This replaced a test forbidding `qwen3.8` in any recipe, which was correct until
+    2026-08-14 and is now the opposite of correct: Qwen3.8-27B is the base.
 
-    Checked on the parsed value, not the file text: the comments explain why 3.8 is not
-    used yet, and a test that forbade naming it would forbid saying so.
+    The RULE that test encoded did not expire with it. What made the name unusable was never the
+    version -- it was that the only repositories carrying it were third-party derivatives with no
+    official base, which cannot be verified and should not be trained against. So the check moves
+    to the thing that actually mattered: the pin names the vendor's own namespace, not a re-upload
+    of it. `TheBloke/Qwen3.8-27B-GGUF` and `someone/qwen3.8-27b-merged` both pin to a real
+    40-character commit and would sail through every other test in this file.
 
-    Matched on the vendor name rather than on the bare version, which mattered while the model
-    line was called spark-hermes-agent-3.8-27b: every output path under it contained "3.8", and a
-    substring check on the version alone reported our own directory name as an unpublished Qwen
-    release. The line is spark-hermes-glimmer-30b now and the check is kept anyway -- it costs
-    nothing and the pin is one edit away from naming an unpublished model again."""
-    config = yaml.safe_load(recipe.read_text(encoding="utf-8"))
-    base = str(config["base_model"])
-    assert "qwen3.8" not in base.lower()
+    Deleting the old test outright would have been the easy move and would have removed the only
+    thing standing between this pin and a mirror."""
+    pin = load()
+    org, _, name = pin.repository.partition("/")
+    assert org == "Qwen", (
+        f"the pin names {pin.repository!r}. A derivative or a mirror pins just as well as the "
+        "original and trains just as silently; the vendor namespace is what says it is the base."
+    )
+    assert name == "Qwen3.8-27B"
 
 
 def test_the_dialect_is_recorded_with_its_evidence():
     """Hermes is upstream; the model is what adapts. So the dialect is established by
     reading the model's own template, not chosen for it -- and this base does not speak Hermes.
 
-    The evidence has to name the markup the parser depends on AND the Hermes markup the model
-    does not emit. Recording only the first would let a pin claim `atem` for a model whose
-    template happens to mention an atem tag in a comment, and recording only the second would
-    say what it is not."""
+    For the previous base the evidence could be "it writes `<atem:` and no `<tool_call>`", and
+    naming the absent Hermes tags was the decisive half. This base writes `<tool_call>` AND
+    `<think>`, so that half of the argument is gone: the tags agree with Hermes and the payload
+    does not. Evidence that only listed tags would therefore *support the wrong conclusion* here,
+    which is why it has to name the element form explicitly and say that the overlap exists."""
     pin = load()
-    assert pin.hermes_dialect == "atem"
+    assert pin.hermes_dialect == "qwen35"
     evidence = pin.raw["hermes_dialect_evidence"]
-    for marker in ("<atem:function_calls>", "<atem:invoke", "<atem:parameter", "<tool_output"):
+    for marker in ("<tool_call>", "<function=", "<parameter=", "<tool_response>", "<think>"):
         assert marker in evidence, marker
-    # Named as the things it does NOT emit, which is why hermes/atem.py exists at all.
-    assert "<tool_call>" in evidence and "<think>" in evidence
+    # The distinguishing claim, not just the tag list. Without this a pin could quote the tags,
+    # every one of which Hermes also writes, and read as evidence FOR hermes-4.
     assert "does not speak Hermes" in evidence
+    assert "one element per parameter" in evidence.lower()
+
+
+def test_the_dialects_evidence_survives_the_tag_overlap():
+    """The specific trap this base sets, asserted rather than trusted to a reader.
+
+    Every tag in the evidence string is one Hermes writes too. So the pin must state that fact --
+    a later editor trimming the evidence down to "it writes <tool_call> and <think>" would leave
+    something that reads as a Hermes model and passes a tag-based review."""
+    evidence = load().raw["hermes_dialect_evidence"].lower()
+    assert "tag overlap" in evidence or "shares hermes" in evidence
+    assert "json" in evidence, "the evidence has to say what is NOT there, which is the JSON object"
 
 
 def test_the_dialect_names_one_this_repo_implements():
@@ -145,38 +161,38 @@ def test_the_dialect_names_one_this_repo_implements():
 
 
 def test_multimodal_is_recorded_because_it_is_easy_to_miss():
-    """A MuseGlimmerForConditionalGeneration keeps its text hyperparameters under `text_config`;
+    """A Qwen3_5ForConditionalGeneration keeps its text hyperparameters under `text_config`;
     the top level of config.json carries only vision and projector keys, so anything reading it
     for hidden_size or num_hidden_layers gets None and computes a memory budget out of nothing.
 
-    Two base models in a row have had this shape, which is why it is asserted rather than noted.
+    Three base models in a row have had this shape, which is why it is asserted rather than noted.
     `AutoModelForCausalLM` also refuses this config outright -- the class is
     `AutoModelForImageTextToText`, and finding that out cost a load attempt."""
     pin = load()
     assert pin.multimodal is True
-    assert pin.raw["text_config"]["num_hidden_layers"] == 52
-    assert pin.raw["text_config"]["num_key_value_heads"] == 2
-    assert pin.raw["text_config"]["head_dim"] == 128
+    assert pin.raw["text_config"]["num_hidden_layers"] == 64
+    assert pin.raw["text_config"]["num_key_value_heads"] == 4
+    assert pin.raw["text_config"]["head_dim"] == 256
     assert "hidden_size" not in {k for k in pin.raw if k != "text_config"}
 
 
 def test_kv_bytes_count_only_the_full_attention_layers():
-    """This model is hybrid, so its KV cache lives in 13 of 52 layers, not all of them.
+    """This model is hybrid, so its KV cache lives in 16 of 64 layers, not all of them.
 
-    The previous version of this test asserted
-    `2 * num_hidden_layers * kv_heads * head_dim` and passed -- which is exactly how the
-    wrong figure shipped. The formula and the pin agreed with each other, and neither
-    described the model. `layer_types` in the published config is 39 `sliding_attention` +
-    13 `full_attention`; a sliding layer holds at most `sliding_window` tokens rather than
-    growing with the context, so it belongs in a bounded per-sequence budget and not in a
-    figure that gets multiplied by a context length.
+    An earlier version of this test asserted `2 * num_hidden_layers * kv_heads * head_dim` and
+    passed -- which is exactly how a wrong figure shipped once. The formula and the pin agreed
+    with each other, and neither described the model. `layer_types` in the published config is
+    48 `linear_attention` + 16 `full_attention`, one full layer every `full_attention_interval`;
+    a linear layer holds a fixed-size recurrent state per sequence rather than growing with the
+    context, so it belongs in a bounded per-sequence budget and not in a figure that gets
+    multiplied by a context length.
 
-    The previous base was hybrid too, with 48 linear-attention layers instead of sliding ones.
-    The mechanism differs and the arithmetic lesson is identical, which is why this test survived
-    the base model changing underneath it.
+    Three bases in a row have been hybrid, by two different mechanisms -- sliding windows on one,
+    linear attention on the others. The mechanism differs and the arithmetic lesson is identical,
+    which is why this test survives the base model changing underneath it.
 
     Getting it wrong is not cosmetic: `kv_bytes()` sizes a VRAM budget against a card, and
-    counting all 52 layers overstates the per-token cost by 4x, which rules out hardware that in
+    counting all 64 layers overstates the per-token cost by 4x, which rules out hardware that in
     fact runs this model comfortably.
     """
     pin = load()
@@ -185,7 +201,13 @@ def test_kv_bytes_count_only_the_full_attention_layers():
     full = counts["full_attention"]
 
     assert sum(counts.values()) == t["num_hidden_layers"]
-    assert t["sliding_window"] > 0, "a bounded layer needs its bound recorded"
+    assert full == t["num_hidden_layers"] // t["full_attention_interval"]
+
+    # The bounded half needs its bound recorded, whatever the mechanism. For a sliding-window
+    # model that was `sliding_window`; here it is the linear layers' own state dimensions, and
+    # asserting a field named for one mechanism would have quietly skipped this on the other.
+    for field in ("linear_num_key_heads", "linear_num_value_heads", "linear_key_head_dim", "linear_value_head_dim"):
+        assert t[field] > 0, f"a bounded layer needs its bound recorded; {field} is missing"
 
     expected = 2 * full * t["num_key_value_heads"] * t["head_dim"]
     assert pin.kv_bytes_per_token["bf16"] == expected * 2
@@ -195,45 +217,52 @@ def test_kv_bytes_count_only_the_full_attention_layers():
     # fails here rather than silently quadrupling every budget again.
     all_layers = 2 * t["num_hidden_layers"] * t["num_key_value_heads"] * t["head_dim"] * 2
     assert pin.kv_bytes_per_token["bf16"] != all_layers
+    assert all_layers == pin.kv_bytes_per_token["bf16"] * 4
 
 
-def test_the_measurement_confirms_the_derivation_rather_than_replacing_it():
-    """Measured on SGLang against this base, and it agrees to the byte: 7.52 GiB over 606,251
-    tokens is 13,319 B/token against 13,312 derived, the gap being the rounding in the server's own
-    printout.
+def test_the_measurement_is_null_until_someone_actually_takes_one():
+    """The derivation for this base is UNCONFIRMED, and the pin has to say so.
 
-    It was null until this was taken, rather than carrying the previous pin's figure -- 33.36 GiB
-    holding 507,539 tokens, measured on Qwen3.6-27B. A measurement of one model reading as a
-    measurement of another is worse than having none, because stale and fresh look identical.
-    """
+    On the previous base this field held a real SGLang reading that agreed with the derivation to
+    the byte -- and the only reason anyone trusted the derivation was that the reading existed.
+    Nobody has served this pin. Carrying the old numbers forward would have been a one-line edit
+    that survived every other test in this file, because a measurement of one model and a
+    measurement of another are the same shape.
+
+    So the assertion is that the field is null AND that the pin explains why, rather than looking
+    like a field somebody forgot to fill in. `kv_bytes()` still works -- the derivation is the
+    best available number and is almost certainly right -- but a reader sizing hardware off it
+    deserves to know which kind of number it is."""
     pin = load()
-    measured = pin.raw["kv_bytes_measured"]
-    full = measured["full_attention_pool"]
-    derived = pin.kv_bytes_per_token["bf16"]
-    assert abs(full["implied_bytes_per_token"] - derived) / derived < 0.001
-
-    # The server accounts for the two halves separately, which is the whole point of the note: the
-    # sliding pool is bounded per sequence, so summing them would reproduce the wrong
-    # all-52-layers figure.
-    swa = measured["sliding_window_pool"]
-    t = pin.raw["text_config"]
-    sliding = t["layer_types_counts"]["sliding_attention"]
-    assert swa["implied_bytes_per_token"] == pytest.approx(
-        2 * sliding * t["num_key_value_heads"] * t["head_dim"] * 2, rel=0.001
-    )
-    all_layers = 2 * t["num_hidden_layers"] * t["num_key_value_heads"] * t["head_dim"] * 2
-    assert full["implied_bytes_per_token"] + swa["implied_bytes_per_token"] == pytest.approx(all_layers, rel=0.001)
-    assert derived != all_layers, "which is the figure this pin exists to not report"
+    assert pin.raw["kv_bytes_measured"] is None
+    why = pin.raw["kv_bytes_measured_note"].lower()
+    assert "not been confirmed" in why or "unconfirmed" in why
+    # Naming the previous base, so the next person to fill this in cannot do it by copying.
+    assert "muse-glimmer" in why
 
 
 def test_kv_bytes_for_a_peak_context():
     pin = load()
-    # 131K tokens -- this model's full context -- of fp8 KV over the 13 full-attention layers is
-    # ~0.9 GB. Two KV heads is aggressive GQA and is most of why that is so small for a 30B: the
-    # whole context costs less than 1 GB beside ~60 GB of bf16 weights on a 96 GB card. Under an
-    # all-52-layers figure it would read 3.5 GB, which is still comfortable and still wrong.
-    assert round(pin.kv_bytes(131_072, dtype="fp8") / 1e9, 1) == 0.9
-    assert pin.kv_bytes(131_072, dtype="bf16") == 2 * pin.kv_bytes(131_072, dtype="fp8")
+    # 262K tokens -- this model's native context -- of fp8 KV over the 16 full-attention layers is
+    # ~8.6 GB, which fits beside ~56 GB of bf16 weights on a 96 GB card. Under an all-64-layers
+    # figure it would read ~34 GB, and 56 + 34 does not fit: that is the arithmetic by which a 4x
+    # error rules out hardware that in fact runs the model.
+    assert round(pin.kv_bytes(262_144, dtype="fp8") / 1e9, 1) == 8.6
+    assert round(pin.kv_bytes(131_072, dtype="fp8") / 1e9, 1) == 4.3
+    assert pin.kv_bytes(262_144, dtype="bf16") == 2 * pin.kv_bytes(262_144, dtype="fp8")
+
+
+def test_the_parameter_count_comes_from_the_index_not_the_model_card():
+    """ "27B" is a rounded marketing figure; the pin is what a memory budget is computed from.
+
+    Cross-checked against the shard total so an edited digit fails here: bf16 weights are two
+    bytes per parameter, so the recorded count and `safetensors_shards` have to be consistent with
+    a real 55.6 GB download."""
+    pin = load()
+    assert pin.raw["parameters"] == 27_781_427_952
+    assert pin.raw["safetensors_shards"] == 18
+    bf16_bytes = pin.raw["parameters"] * 2
+    assert round(bf16_bytes / 1e9) == 56, "the bf16 footprint the recipes' LoRA-not-QLoRA note assumes"
 
 
 def test_an_unknown_dtype_is_refused_rather_than_assumed():

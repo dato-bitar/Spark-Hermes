@@ -3,7 +3,7 @@
     python -m admin.cli status --root var/admin/run-1
     python -m admin.cli rollout --root var/admin/run-1 --repeats 8 --base-url http://127.0.0.1:8001/v1
     python -m admin.cli corpus  --root var/admin/run-1
-    python -m admin.cli evaluate --root var/admin/run-1 --model muse-glimmer-30b --print-only
+    python -m admin.cli evaluate --root var/admin/run-1 --model qwen3.8-27b --print-only
 
 `evaluate` prints its command rather than running it. The eval suite is what every claim about this
 model rests on, so it gets launched deliberately -- with the withheld environment set, on a quiet
@@ -33,7 +33,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--repeats", type=int, default=8)
     parser.add_argument("--concurrency", type=int, default=12)
     parser.add_argument("--base-url", default="http://127.0.0.1:8001/v1")
-    parser.add_argument("--model", default="muse-glimmer-30b")
+    parser.add_argument("--model", default="qwen3.8-27b")
     parser.add_argument("--dialect", default="atem")
     parser.add_argument("--max-pairs-per-task", type=int, default=8)
     parser.add_argument("--print-only", action="store_true", help="evaluate: print the command, do not run it")

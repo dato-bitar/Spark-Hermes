@@ -19,14 +19,20 @@ checkpoint.
 
 ---
 
-## Phase 0 — Qwen3.6-27B Hermes adapter (pipeline validation)
+## Phase 0 — Hermes adapter on a stand-in base (pipeline validation)
 
 **Goal:** not the final model. Prove that SparkDistill can convert a strong general model
 into a Hermes-native worker.
 
 ```
-Qwen3.6-27B  +  Hermes specialization  ->  Spark-Hermes-Agent-3.8-27B
+a stand-in base  +  Hermes specialization  ->  a Hermes-native worker
 ```
+
+Phase 0 ran on two stand-ins in succession — `Qwen3.6-27B`, then
+`meta-models/Muse-Glimmer-30B` — because the intended base was announced and unpublished, and a
+repository that cannot be pinned should not be trained against. Both were development bases and
+neither was ever the target. `Qwen/Qwen3.8-27B` published on 2026-08-14 and is now the pinned
+base, so Phase 1 below runs on the real one.
 
 The question Phase 0 answers is *"does this work?"* — not *"can this compete?"*
 
@@ -103,7 +109,7 @@ Three stages, in order:
 | **B — Hermes behavior** | observe → plan → act → verify → recover | `stage-b-hermes.yaml` |
 | **C — tool reliability** | correct tool choice, well-formed calls, no hallucinated tools | `stage-c-tools.yaml` |
 
-Configs live in [`hermes/recipes/spark-hermes-glimmer-30b/`](../hermes/recipes/spark-hermes-glimmer-30b/).
+Configs live in [`hermes/recipes/spark-hermes-3.8-27b/`](../hermes/recipes/spark-hermes-3.8-27b/).
 The order is load-bearing: stage B on a model that cannot plan produces a model that calls
 tools confidently and wrongly.
 
@@ -176,10 +182,10 @@ The positioning follows from that: not "a Qwen fine-tune", but **the first open-
 model optimised specifically for Hermes Agent execution**. The model is one component; the
 durable asset is the corpus of verified Hermes behaviour behind it.
 
-When Qwen3.8-27B lands:
+Qwen3.8-27B landed on 2026-08-14 and is the pinned base:
 
 ```
-meta-models/Muse-Glimmer-30B  ->  SparkDistill  ->  Spark-Hermes-Glimmer-30B
+Qwen/Qwen3.8-27B  ->  SparkDistill  ->  Spark-Hermes-3.8-27B
 ```
 
 Phase 0 asked "does this work?". Phase 1 asks **"can this compete?"** — same pipeline,
@@ -260,7 +266,7 @@ produces confident staleness. The estimate is the feature.
 ## Phase 3 — specialized Hermes workers
 
 Instead of one giant model, a family of specialists fine-tuned from
-`Spark-Hermes-Glimmer-30B`:
+`Spark-Hermes-3.8-27B`:
 
 | Worker | Trained on | Does |
 |---|---|---|

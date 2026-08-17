@@ -49,14 +49,24 @@ import json
 import re
 from typing import Any
 
-from hermes.protocol import ParsedCall, ParsedTurn, ProtocolError
+from hermes.protocol import ParsedCall, ParsedTurn, ProtocolError, coerce_text_arguments
 
 DIALECT_NAME = "atem"
 
 CALLS_OPEN = "<atem:function_calls>"
 CALLS_CLOSE = "</atem:function_calls>"
+
+# The cheapest substring that means "there might be a call in here", read by callers that want to
+# skip a full parse. Every wire module exposes this name so the caller does not have to know which
+# constant each one happens to call its opening tag.
+CALL_MARKER = "<atem:"
+
 OUTPUT_OPEN = "<tool_output"
 OUTPUT_CLOSE = "</tool_output>"
+
+# What a rendered tool result starts with. Unclosed, because this format writes a name attribute
+# into the tag, so `<tool_output` is as much of it as is fixed.
+RESULT_PREFIX = OUTPUT_OPEN
 
 # Reasoning arrives on its own channel, so unlike Hermes there is no tag to look for.
 REASONING_CHANNEL = "self"
@@ -165,50 +175,13 @@ def coerce(arguments: dict[str, str], schema: dict[str, Any] | None) -> dict[str
     Everything arrives as a string because the format has no types. The tool's own JSON Schema is
     the only thing that says what a parameter should be, so it is the only thing consulted.
 
-    Anything not covered by the schema stays a string. Sniffing -- "it looks like a number, make
-    it one" -- turns `{"path": "123"}` into `{"path": 123}` and hands a tool an integer where it
-    declared a filename. Under-recovering is the direction that fails loudly at the tool boundary
-    rather than quietly inside it.
+    The implementation moved to `hermes.protocol.coerce_text_arguments` when a second element-per-
+    parameter format arrived, because the problem is the format's and not this dialect's:
+    `hermes.qwen35` needs exactly the same recovery, and two copies of it would drift until one
+    trajectory coerced differently depending on which base model produced it. Kept as a name here
+    because it is part of this module's interface.
     """
-    properties = ((schema or {}).get("properties") or {}) if isinstance(schema, dict) else {}
-    out: dict[str, Any] = {}
-    for key, raw in arguments.items():
-        declared = properties.get(key) if isinstance(properties, dict) else None
-        kind = (declared or {}).get("type") if isinstance(declared, dict) else None
-        out[key] = _cast(raw, kind)
-    return out
-
-
-def _cast(raw: str, kind: str | None) -> Any:
-    if kind in (None, "string"):
-        return raw
-    text = raw.strip()
-    try:
-        if kind == "boolean":
-            if text in ("true", "false"):
-                return text == "true"
-            return raw
-        if kind == "integer":
-            return int(text)
-        if kind == "number":
-            return float(text)
-        if kind in ("object", "array"):
-            loaded = json.loads(text)
-            # The declared type still has to hold: a schema saying `array` and a payload holding
-            # an object is a disagreement, and passing it through would move the failure into the
-            # tool where the reason is no longer visible.
-            if kind == "array" and not isinstance(loaded, list):
-                return raw
-            if kind == "object" and not isinstance(loaded, dict):
-                return raw
-            return loaded
-        if kind == "null":
-            return None if text == "null" else raw
-    except (TypeError, ValueError):
-        # Unparseable against its declared type. Returned as the text it was, so the tool refuses
-        # it with the real value in the message instead of receiving a silently coerced one.
-        return raw
-    return raw
+    return coerce_text_arguments(arguments, schema)
 
 
 def parse_turn(content: str, *, reasoning: str = "", schemas: dict[str, dict[str, Any]] | None = None) -> ParsedTurn:
@@ -338,8 +311,10 @@ def _strip(text: str, spans: list[tuple[int, int]]) -> str:
 __all__ = [
     "CALLS_CLOSE",
     "CALLS_OPEN",
+    "CALL_MARKER",
     "DIALECT_NAME",
     "OUTPUT_CLOSE",
+    "RESULT_PREFIX",
     "OUTPUT_OPEN",
     "REASONING_CHANNEL",
     "coerce",

@@ -1,7 +1,7 @@
 """Generate tasks at scale: seeds in, gated tasks out, every rejection counted.
 
     python -m hermes.taskgen.cli --count 350 --out var/tasks/gen-1 \\
-        --base-url http://127.0.0.1:8001/v1 --model muse-glimmer-30b
+        --base-url http://127.0.0.1:8001/v1 --model qwen3.8-27b
 
 Parallel because generation is I/O bound on a served model and the gate is process bound, and the
 two overlap. Resumable because a run of several hundred will be interrupted, and re-generating a
@@ -164,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, default=Path("var/tasks/gen-1"))
     parser.add_argument("--withheld-out", type=Path, default=None, help="defaults to <out>/withheld")
     parser.add_argument("--base-url", default="http://127.0.0.1:8001/v1")
-    parser.add_argument("--model", default="muse-glimmer-30b")
+    parser.add_argument("--model", default="qwen3.8-27b")
     parser.add_argument("--api-key-env", default="OPENAI_API_KEY")
     parser.add_argument("--concurrency", type=int, default=8)
     parser.add_argument("--gate-timeout", type=int, default=120)

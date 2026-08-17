@@ -93,27 +93,67 @@ def test_the_reasoning_tag_differs_between_dialects():
 
 
 def test_dialects_are_addressable_by_name():
-    assert set(DIALECTS) == {"hermes-3", "hermes-4", "atem"}
+    assert set(DIALECTS) == {"hermes-3", "hermes-4", "atem", "qwen35"}
 
 
 def test_only_the_hermes_dialects_carry_their_tools_in_the_prompt():
-    """The flag the dispatch reads. ATEM's definitions come from the serving template, so a
-    prompt-embedded block would advertise tools while the template's own recipient list forbids
-    calling them -- see `Dialect.tools_in_prompt`."""
-    assert [n for n, d in DIALECTS.items() if not d.tools_in_prompt] == ["atem"]
+    """The flag the dispatch reads. Neither non-Hermes format's definitions come from this repo:
+    ATEM's serving template forbids the recipients a prompt-embedded block would advertise, and
+    qwen35's template renders its own `# Tools` system turn from the `tools` kwarg, so writing
+    ours beside it conditions the model on two tool blocks in one prompt."""
+    assert sorted(n for n, d in DIALECTS.items() if not d.tools_in_prompt) == ["atem", "qwen35"]
     assert all(DIALECTS[n].family == "hermes" for n in ("hermes-3", "hermes-4"))
 
 
-def test_the_dispatch_reads_the_family_not_the_name():
-    """A dialect named `atem-2` must take the ATEM path. Keying on the name would send it down
-    the Hermes one and report every call as unparseable prose."""
+def test_every_dialect_family_has_a_module_that_implements_it():
+    """The registry that replaced a chain of `if family == "atem"` branches.
+
+    That chain lived in five places across four files. A branch missed in one of them does not
+    crash -- that call site keeps taking the Hermes path, parses the wrong format, and reports the
+    difference as the model's fault. So the mapping is checked as data, once."""
+    from hermes.protocol import WIRE_MODULES, wire_module
+
+    assert set(WIRE_MODULES) == {d.family for d in DIALECTS.values()}
+    assert wire_module(DIALECTS["hermes-4"]) is None, "Hermes is implemented in hermes.protocol itself"
+    for name in ("atem", "qwen35"):
+        module = wire_module(DIALECTS[name])
+        assert module is not None and module.DIALECT_NAME == name
+        # The interface `hermesbench.policy` and `hermes.format` dispatch through. A module
+        # missing one of these fails at the call site, mid-run, on whichever trajectory reached it.
+        for attribute in ("parse_turn", "render_tool_call", "render_tool_response", "CALL_MARKER", "RESULT_PREFIX"):
+            assert hasattr(module, attribute), f"{name}.{attribute}"
+
+
+def test_an_unregistered_family_is_refused_rather_than_treated_as_hermes():
+    """The failure the registry exists to make loud. Falling through to the Hermes path would
+    parse a foreign format with a JSON decoder and blame the model for every turn."""
     import dataclasses
 
-    from hermes.atem import render_tool_call as render_atem
+    from hermes.protocol import ProtocolError, wire_module
 
-    future = dataclasses.replace(DIALECTS["atem"], name="atem-2")
-    turn = parse_turn(render_atem("terminal", {"command": "ls"}), dialect=future)
+    invented = dataclasses.replace(DIALECTS["qwen35"], name="qwen4", family="qwen4")
+    with pytest.raises(ProtocolError, match="no module implements"):
+        wire_module(invented)
+
+
+@pytest.mark.parametrize("dialect_name", ["atem", "qwen35"])
+def test_the_dispatch_reads_the_family_not_the_name(dialect_name):
+    """A dialect named `atem-2` must take the ATEM path. Keying on the name would send it down
+    the Hermes one and report every call as unparseable prose.
+
+    Run for qwen35 too, where it matters more: that format's tags ARE Hermes's, so a name-keyed
+    dispatch would not merely mis-parse it, it would find `<tool_call>`, hand `<function=terminal>`
+    to a JSON decoder, and report a malformed turn rather than an unrecognised one."""
+    import dataclasses
+
+    from hermes.protocol import wire_module
+
+    original = DIALECTS[dialect_name]
+    future = dataclasses.replace(original, name=f"{dialect_name}-2")
+    rendered = wire_module(original).render_tool_call("terminal", {"command": "ls"})
+    turn = parse_turn(rendered, dialect=future)
     assert len(turn.calls) == 1 and turn.malformed == ()
+    assert turn.calls[0].name == "terminal" and turn.calls[0].arguments == {"command": "ls"}
 
 
 # --- parsing -------------------------------------------------------------------------

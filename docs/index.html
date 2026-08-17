@@ -68,12 +68,12 @@
 </style>
 
 <main>
-  <img class="banner" src="images/spark-hermes-glimmer.png" alt="Spark-Hermes-Glimmer-30B">
+  <img class="banner" src="images/spark-hermes-3.8-27b.png" alt="Spark-Hermes-3.8-27B">
 
   <h1>Spark-Hermes</h1>
   <p class="lead">One pinned model. An open competition on how it is <em>used</em>. Every result
   checkable by a stranger.</p>
-  <p class="dim">SN74 Gittensor · <code>Spark-Hermes-Glimmer-30B</code></p>
+  <p class="dim">SN74 Gittensor · <code>Spark-Hermes-3.8-27B</code></p>
 
   <div class="row">
     <a class="btn primary" href="board/">Live board →</a>
@@ -166,11 +166,11 @@
   <div class="wrap">
     <table>
       <tbody>
-        <tr><th>Base</th><td class="mono"><a href="https://huggingface.co/meta-models/Muse-Glimmer-30B">meta-models/Muse-Glimmer-30B</a> @ 97c77dff</td></tr>
-        <tr><th>Wire format</th><td>ATEM — this base does not speak Hermes, so the repository implements its native format (<a href="https://github.com/gittensor-model-hub/Spark-Hermes/blob/main/docs/why-atem.md">why, and what it cost</a>)</td></tr>
+        <tr><th>Base</th><td class="mono"><a href="https://huggingface.co/Qwen/Qwen3.8-27B">Qwen/Qwen3.8-27B</a> @ 1d4bf0f2</td></tr>
+        <tr><th>Wire format</th><td><code>qwen35</code> — this base writes Hermes’s own <code>&lt;tool_call&gt;</code> and <code>&lt;think&gt;</code> tags but a different payload inside them, so the repository implements its native format (<a href="https://github.com/gittensor-model-hub/Spark-Hermes/blob/main/docs/wire-dialects.md">why, and what it cost</a>)</td></tr>
         <tr><th>Train &amp; score</th><td>bf16 on an RTX PRO 6000 Blackwell, 96 GB</td></tr>
         <tr><th>Ship</th><td>GGUF, sized for a 32 GB card</td></tr>
-        <tr><th>Serving</th><td>SGLang — vLLM has no native support for this architecture yet</td></tr>
+        <tr><th>Serving</th><td>SGLang — <a href="https://github.com/gittensor-model-hub/Spark-Hermes/blob/main/docs/serving-qwen3.8.md">not yet brought up against this pin</a></td></tr>
       </tbody>
     </table>
   </div>
@@ -193,7 +193,7 @@ python -m miner.cli evaluate      # your surface against the baseline
     <p>Built by <a href="https://github.com/gittensor-model-hub">Gittensor</a> · MIT ·
     <a href="https://github.com/gittensor-model-hub/Spark-Hermes">source</a> ·
     <a href="board/">board</a> ·
-    <a href="https://github.com/gittensor-model-hub/Spark-Hermes/blob/main/docs/serving-muse-glimmer.md">serving notes</a></p>
+    <a href="https://github.com/gittensor-model-hub/Spark-Hermes/blob/main/docs/serving-qwen3.8.md">serving notes</a></p>
     <p class="dim">Kernel-level work — verified Triton corpora and the export primitives — lives in
     <a href="https://github.com/gittensor-model-hub/SparkProof">SparkProof</a>, which this page used
     to describe.</p>

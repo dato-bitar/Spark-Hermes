@@ -1,63 +1,59 @@
 {
   "schema_version": "spark-base-model-v1",
-  "phase": 0,
-  "phase_intent": "development base for Spark-Hermes-Glimmer-30B. Trained and scored in bf16 on a 96 GB card; distributed as GGUF sized for a 32 GB card, which is a separate artifact whose scores must be re-measured rather than inherited.",
-  "repository": "meta-models/Muse-Glimmer-30B",
-  "revision": "97c77dff50b2797bcc558fa2d909761dbc575c59",
-  "pinned_on": "2026-08-11",
-  "model_type": "muse_glimmer",
+  "phase": 1,
+  "phase_intent": "base for Spark-Hermes-3.8-27B. Trained and scored in bf16 on a 96 GB card; distributed as GGUF sized for a 32 GB card, which is a separate artifact whose scores must be re-measured rather than inherited.",
+  "repository": "Qwen/Qwen3.8-27B",
+  "revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "pinned_on": "2026-08-17",
+  "model_type": "qwen3_5",
   "architectures": [
-    "MuseGlimmerForConditionalGeneration"
+    "Qwen3_5ForConditionalGeneration"
   ],
   "chat_template": "chat_template.jinja",
-  "parameters": 29776626688,
-  "hermes_dialect": "atem",
-  "hermes_dialect_evidence": "the repository's own chat_template.jinja renders tool calls as <atem:function_calls> / <atem:invoke name=\"...\"> / <atem:parameter name=\"...\">, returns results in <tool_output name=\"...\">, and addresses deliberation to a `self` recipient rather than emitting an inline reasoning tag. It contains no <tool_call> and no <think>: this model does not speak Hermes, and hermes/atem.py exists because of that. Verified by generation, not only by reading -- see docs/serving-muse-glimmer.md.",
-  "dialect_note": "The pinned artifact for this dialect is upstream's own chat_template.jinja, committed at hermes/templates/chat-template-atem.jinja, and hermes.conformance checks that every marker hermes/atem.py parses is still present in it. There is no rendered system prompt to pin because this repo writes no tool block for ATEM: the definitions go with the request so the template renders them, the valid-recipient list and the reasoning line as one consistent block.",
-  "serving": "SGLang built from the upstream muse-glimmer branch. vLLM 0.27.0 has no native support for this architecture and its --model-impl transformers fallback returns incoherent output for it. scripts/serve_agent.sh carries the recipe; docs/serving-muse-glimmer.md carries the evidence and the eight startup failures behind it, none of which were the model.",
+  "parameters": 27781427952,
+  "parameters_note": "Derived from model.safetensors.index.json: total_size 55562855904 bytes over 18 shards, at 2 bytes per bf16 parameter. Read off the index rather than the model card, because the card rounds to '27B' and the pin is what a memory budget is computed from.",
+  "hermes_dialect": "qwen35",
+  "hermes_dialect_evidence": "the repository's own chat_template.jinja wraps each call as <tool_call>\\n<function=NAME>\\n<parameter=KEY>\\nvalue\\n</parameter>\\n</function>\\n</tool_call>, returns results in <tool_response>, and renders deliberation from message['reasoning_content'] into a <think> block. It shares Hermes's OUTER tags -- <tool_call> and <think> are both present -- and emits no <atem:function_calls>. But the payload inside <tool_call> is one element per parameter, NOT the Hermes '{\"name\": ..., \"arguments\": {...}}' JSON object, so hermes.protocol's JSON decoder finds no call on any turn. This model does not speak Hermes, and it is the tag overlap that makes saying so necessary: the dialect cannot be established by looking for <tool_call>. Established by reading the pinned template; see docs/serving-qwen3.8.md for what has and has not been confirmed by generation.",
+  "dialect_note": "The pinned artifact for this dialect is upstream's own chat_template.jinja, committed at hermes/templates/chat-template-qwen35.jinja, and hermes.conformance checks that every marker hermes/qwen35.py parses is still present in it. There is no rendered system prompt to pin because this repo writes no tool block for QWEN35: the definitions go with the request so the template renders its own '# Tools' system turn, the <tools> array and the call-format instruction as one consistent block. Writing our own alongside it would condition the model on two tool blocks in the same prompt.",
+  "serving": "NOT YET ESTABLISHED in this repo. The published config declares transformers_version 5.8.0.dev0 and the tags advertise vLLM and SGLang compatibility, but neither has been run against this pin here, and the previous base needed SGLang built from a branch after eight startup failures. scripts/serve_agent.sh carries the recipe it had for Muse-Glimmer and has NOT been re-verified for this architecture. Treat a first bring-up as unproven work, not as a config change.",
   "multimodal": true,
   "language_model_only": false,
   "text_config": {
-    "num_hidden_layers": 52,
-    "num_attention_heads": 32,
-    "num_key_value_heads": 2,
-    "head_dim": 128,
-    "hidden_size": 6656,
-    "intermediate_size": 19968,
-    "vocab_size": 202048,
-    "max_position_embeddings": 131072,
+    "num_hidden_layers": 64,
+    "num_attention_heads": 24,
+    "num_key_value_heads": 4,
+    "head_dim": 256,
+    "hidden_size": 5120,
+    "intermediate_size": 17408,
+    "vocab_size": 248320,
+    "max_position_embeddings": 262144,
     "tie_word_embeddings": false,
-    "final_logit_softcapping": 20.0,
-    "sliding_window": 2048,
+    "full_attention_interval": 4,
+    "partial_rotary_factor": 0.25,
+    "linear_num_key_heads": 16,
+    "linear_num_value_heads": 48,
+    "linear_key_head_dim": 128,
+    "linear_value_head_dim": 128,
+    "linear_conv_kernel_dim": 4,
     "layer_types_counts": {
-      "full_attention": 13,
-      "sliding_attention": 39
+      "full_attention": 16,
+      "linear_attention": 48
     }
   },
   "vision_config": {
-    "hidden_size": 1536,
-    "num_hidden_layers": 50
+    "hidden_size": 1152,
+    "depth": 27,
+    "out_hidden_size": 5120,
+    "patch_size": 16
   },
-  "text_config_note": "Every text hyperparameter is nested under text_config. This is a MuseGlimmerForConditionalGeneration, so the top level of config.json carries only vision and projector keys -- anything reading it for hidden_size or num_hidden_layers gets None and computes a memory budget out of nothing. tests/test_base_model.py asserts the nesting for that reason. AutoModelForCausalLM also refuses this config outright; the class is AutoModelForImageTextToText.",
+  "text_config_note": "Every text hyperparameter is nested under text_config. This is a Qwen3_5ForConditionalGeneration, so the top level of config.json carries only vision and projector keys -- anything reading it for hidden_size or num_hidden_layers gets None and computes a memory budget out of nothing. tests/test_base_model.py asserts the nesting for that reason. AutoModelForCausalLM also refuses this config outright; the class is AutoModelForImageTextToText. Three base models in a row have had this shape.",
   "kv_bytes_per_token": {
-    "bf16": 13312,
-    "fp8": 6656
+    "bf16": 65536,
+    "fp8": 32768
   },
-  "safetensors_shards": 2,
-  "kv_bytes_per_token_note": "Over the 13 FULL-ATTENTION layers only: 2 * 13 * 2 kv_heads * 128 head_dim * 2 bytes. This model is hybrid -- layer_types is 39 sliding_attention + 13 full_attention -- and the 39 sliding layers hold at most `sliding_window` (2048) tokens each rather than growing with context, so they belong in a bounded per-sequence budget and not in a figure multiplied by a context length. Counting all 52 layers would give 53248 and overstate the per-token cost by 4x, which is how a card that runs this model comfortably gets ruled out on paper. Two KV heads is aggressive GQA and is most of why this figure is small for a 30B.",
-  "kv_bytes_measured": {
-    "source": "SGLang 0.5.18.dev387 (muse-glimmer branch) on RTX PRO 6000 Blackwell Server Edition, 2026-08-11",
-    "full_attention_pool": {
-      "tokens": 606251,
-      "gib": 7.52,
-      "implied_bytes_per_token": 13319
-    },
-    "sliding_window_pool": {
-      "tokens": 485000,
-      "gib": 18.04,
-      "implied_bytes_per_token": 39939
-    },
-    "total_resident_gib": 25.56,
-    "note": "The derived figure is confirmed to the byte: 7.52 GiB over 606,251 tokens is 13,319 B/token against 13,312 derived, and the difference is the rounding in SGLang's own printout. The server also accounts for the two halves SEPARATELY, which is the arithmetic in kv_bytes_per_token_note made visible -- the sliding pool is 39,936 B/token over 39 layers and is bounded by the 2048-token window per sequence rather than growing with context, so it belongs in a per-sequence budget and not in a figure multiplied by a context length. Summing the two would give 53,248 B/token, which is exactly the wrong all-52-layers number."
-  }
+  "safetensors_shards": 18,
+  "kv_bytes_per_token_note": "Over the 16 FULL-ATTENTION layers only: 2 * 16 * 4 kv_heads * 256 head_dim * 2 bytes. This model is hybrid -- layer_types is 48 linear_attention + 16 full_attention, one full-attention layer every full_attention_interval (4) -- and the 48 linear layers hold a fixed-size recurrent state per SEQUENCE rather than a per-token cache, so they belong in a bounded per-sequence budget and not in a figure multiplied by a context length. Counting all 64 layers would give 262144 and overstate the per-token cost by 4x, which is how a card that runs this model comfortably gets ruled out on paper.",
+  "kv_bytes_measured": null,
+  "kv_bytes_measured_note": "NULL DELIBERATELY. The figures above are derived from config.json arithmetic and have NOT been confirmed against a live server for this base. The previous pin carried a measurement -- 7.52 GiB over 606,251 tokens on SGLang against Muse-Glimmer-30B -- and those numbers describe a different model with a different layer count, KV-head count and head_dim; carrying them across would assert evidence that does not exist here, and stale and fresh look identical once written down. This is the field that caught a 4x error last time, and it only caught it because a real server contradicted the derivation. Until someone serves this pin and reads SGLang's own KV pool printout, the derivation is unconfirmed and this stays null.",
+  "context_note": "max_position_embeddings is 262144 natively; the model card describes extension to ~1M. A budget saying input_tokens: 262144 without saying whether that is cumulative or PEAK context cannot be checked against a card at all -- the two readings differ by more than an order of magnitude. kv_bytes() takes a peak context. At fp8 and a 262,144-token peak, the derived figure is ~8.6 GB."
 }

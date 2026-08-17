@@ -1,7 +1,7 @@
 """Take a merged surface, run it, score it, and record the verdict. The turn of the crank.
 
     python -m validator.judge accept --round e2e-1 --miner carol
-    python -m validator.judge judge  --round e2e-1 --model qwen3.6-27b --repeats 10
+    python -m validator.judge judge  --round e2e-1 --model qwen3.8-27b --repeats 10
 
 `eval.strategy_track` decides whether a surface may merge and `validator.score` says whether it
 beat the bar. Between them the three steps that actually happen -- run, score, record -- were three

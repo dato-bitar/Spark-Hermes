@@ -77,7 +77,7 @@ here passed `check` cleanly and then, over two independent paired runs, raised m
 
 ```bash
 python -m miner evaluate --dir ./my-surface --task tc-log-rotation-order \
-  --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+  --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 ```
 
 Two arms, paired: one with your surface, one without, on your machine. Pairing removes hardware
@@ -97,7 +97,7 @@ buy: at 7% run-to-run spread the answer is a couple, and at 98% it is over a hun
 
 ```bash
 python -m miner search --dir ./my-surface --task tc-log-rotation-order \
-  --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+  --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 ```
 
 Leave-one-out ablation: the full surface, then one candidate per rule with that rule removed. A

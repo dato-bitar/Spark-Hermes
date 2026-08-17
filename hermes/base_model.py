@@ -1,28 +1,46 @@
 """The base model, pinned to a revision rather than to a name.
 
-The development base is `meta-models/Muse-Glimmer-30B`. It replaced `Qwen/Qwen3.6-27B`, which
-itself stood in for an announced-and-unpublished `Qwen/Qwen3.8-27B` -- the only repositories under
-that name were third-party derivatives with no official base, which cannot be pinned or verified
-and should not be trained against.
+The base is `Qwen/Qwen3.8-27B`. It replaced `meta-models/Muse-Glimmer-30B`, which was never
+the target: Muse-Glimmer was a development stand-in taken up while `Qwen/Qwen3.8-27B` was
+announced and unpublished, when the only repositories under that name were third-party
+derivatives with no official base. That is no longer the situation -- the official repository
+published on 2026-08-14 and is what this pin names.
 
-**A name is not a pin.** `base_model: meta-models/Muse-Glimmer-30B` resolves to whatever that
-repository holds when someone runs it. `eval.hf_pin` already refuses movable refs on the
-mining side for exactly that reason; the base model was the one place still naming a
-repository without saying which commit of it. Two runs that agree on every other digest
-this project computes could still have trained on different weights.
+The history is kept here rather than deleted because the reason for the stand-in was a rule,
+not an accident: a repository that cannot be pinned or verified should not be trained against.
+The rule did not change. The fact it was applied to changed.
+
+**A name is not a pin.** `base_model: Qwen/Qwen3.8-27B` resolves to whatever that repository
+holds when someone runs it. `eval.hf_pin` already refuses movable refs on the mining side for
+exactly that reason; the base model was the one place still naming a repository without saying
+which commit of it. Two runs that agree on every other digest this project computes could still
+have trained on different weights.
 
 ## What the pin records, and why each field is here
 
 `revision` is the whole point -- a 40-character commit, checked by `eval.hf_pin`.
 
 `hermes_dialect` is recorded with its evidence rather than asserted, and for this base the
-evidence says something inconvenient: the repository's own chat template renders tool calls as
-`<atem:function_calls>` / `<atem:invoke>` / `<atem:parameter>`, returns results in
-`<tool_output>`, and puts deliberation on a `self` recipient. It contains no `<tool_call>` and no
-`<think>`. This model does not speak Hermes, which is why `hermes/atem.py` exists -- established
-by reading the model, and then confirmed by generating from it rather
-than by choosing for it -- which matters, because the project's rule is that Hermes is
-upstream and the model is what adapts.
+evidence is a trap rather than merely inconvenient. The repository's own chat template writes
+`<tool_call>` and `<think>` -- both Hermes tags -- so a reader checking for them concludes the
+model speaks Hermes and stops. It does not. What sits *inside* `<tool_call>` is one element per
+parameter:
+
+    Hermes 4        <tool_call>{"name": "terminal", "arguments": {"command": "ls"}}</tool_call>
+    QWEN35          <tool_call>
+                    <function=terminal>
+                    <parameter=command>
+                    ls
+                    </parameter>
+                    </function>
+                    </tool_call>
+
+`hermes.protocol` finds `<tool_call>`, hands the remainder to a JSON decoder, and gets a syntax
+error on every single turn. So the failure mode is not "no calls found" but "every call
+malformed" -- which reads as a model that cannot follow the format, in the metric the promotion
+gate bounds. `hermes/qwen35.py` exists for that reason, the same reason `hermes/atem.py` does,
+and the dialect is established by reading the model rather than by choosing for it. The project's
+rule is that Hermes is upstream and the model is what adapts.
 
 `multimodal: true` is recorded because it is easy to miss and changes things. This is a
 `Qwen3_5ForConditionalGeneration` with a vision tower, so "27B" is not 27B of text
@@ -30,22 +48,27 @@ parameters, the text hyperparameters live under `text_config`, and any memory es
 that reads the top level of `config.json` silently gets `None` for every field.
 
 `kv_bytes_per_token` is derived from those hyperparameters and stored so a budget can be
-checked without a network call. **Over the full-attention layers only** -- which is the part
-that was wrong here until a live server contradicted it. This model is hybrid: `layer_types`
-is 48 `linear_attention` + 16 `full_attention`, so only 16 of the 64 layers keep a per-token
-KV cache and the other 48 hold a fixed per-sequence recurrent state. The figure was
-originally derived as `2 x 64 layers x 4 KV heads x 256 head_dim` -- every layer -- which
-overstated the per-token cost by 4x.
+checked without a network call. **Over the full-attention layers only.** This model is hybrid:
+`layer_types` is 48 `linear_attention` + 16 `full_attention` -- one full layer every
+`full_attention_interval` (4) -- so only 16 of the 64 layers keep a per-token KV cache and the
+other 48 hold a fixed per-sequence recurrent state. Deriving it as
+`2 x 64 layers x 4 KV heads x 256 head_dim` -- every layer -- overstates the per-token cost by 4x.
 
 That is more than a footnote because `kv_bytes` sizes a VRAM budget against a card, so a 4x
 overstatement rules out hardware that runs this model comfortably: at fp8 and a 200K peak
-context the honest number is ~6.6 GB, not ~26 GB. The test asserting the old formula passed
-the entire time, because it and the pin agreed with each other and neither described the
-model -- the failure mode a derived-and-stored constant invites. The pin now also records
-what a real server reported, and says why that measured figure is *not* the one to multiply
-by a context length: it includes per-sequence state that does not scale with context.
+context the honest number is ~6.6 GB, not ~26 GB. On the previous base the test asserting the
+all-layers formula passed the entire time, because it and the pin agreed with each other and
+neither described the model -- the failure mode a derived-and-stored constant invites.
 
-A budget that says `input_tokens: 200000` without saying whether that is cumulative or peak
+**`kv_bytes_measured` is null here, and that is not an oversight.** It was populated on the
+previous pin because someone served that model and read the figure off SGLang's own KV pool
+printout -- which is what caught the 4x error. Nobody has served this pin. The previous base's
+numbers describe a different layer count, KV-head count and head_dim, and carrying them across
+would assert evidence that does not exist, in the one field whose entire value is that it was
+measured. Stale and fresh look identical once written down. So the derivation stands unconfirmed
+and says so.
+
+A budget that says `input_tokens: 262144` without saying whether that is cumulative or peak
 context cannot be checked against a card at all -- the two readings differ by more than an
 order of magnitude.
 """

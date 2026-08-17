@@ -127,12 +127,24 @@ def _clean_reasoning(text: str, *, dialect: Dialect) -> tuple[str, int]:
 
     Stripped rather than refused, because refusing makes every pre-fix log unaggregatable, and
     counted rather than dropped quietly, because `to_messages_record` reports the number on the row.
-    """
-    if dialect.family != "atem" or "<atem:" not in text:
-        return text, 0
-    from hermes.atem import parse_turn as parse_atem
 
-    parsed = parse_atem(text)
+    Keyed on `reasoning_in_content` rather than on the family name, because that flag IS the
+    condition the paragraph above describes: a dialect whose row carries reasoning in a separate
+    field is exactly one whose leftover markup lands somewhere it should not. Both non-Hermes
+    formats here qualify, and a fourth would qualify without this needing an edit.
+    """
+    from hermes.protocol import wire_module
+
+    if dialect.reasoning_in_content:
+        return text, 0
+    wire = wire_module(dialect)
+    # The prefilter is a cheap substring check before a full parse, and each wire module names its
+    # own marker. `<tool_call>` for qwen35 is NOT distinctive -- Hermes writes it too -- which is
+    # fine here precisely because the dialect was already established by the caller.
+    if wire is None or wire.CALL_MARKER not in text:
+        return text, 0
+
+    parsed = wire.parse_turn(text)
     if not parsed.calls and not parsed.malformed:
         return text, 0
     return parsed.text.strip(), len(parsed.calls) + len(parsed.malformed)

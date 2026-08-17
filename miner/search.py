@@ -1,7 +1,7 @@
 """Search the surface space by ablation, and refuse to be fooled by the search itself.
 
     python -m miner search --dir ./my-surface --task tc-log-rotation-order \\
-        --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+        --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 
 A surface is a small pile of rules. This takes one apart, measures the pieces, and reports which
 of them carry the result -- then re-measures the leader on episodes it has never seen, because the

@@ -40,6 +40,7 @@ from typing import Any
 
 from hermes.cost import OPENAI, Usage, usage_from_provider
 from hermes.protocol import (
+    RESPONSE_OPEN,
     Dialect,
     ParsedCall,
     ParsedTurn,
@@ -165,7 +166,7 @@ class ServedModelPolicy:
                 body = step.content if step.ok else f"ERROR: {step.content}"
                 content = _render_response(name, body, self.dialect)
                 role = self.dialect.tool_result_role
-                merge_prefix = "<tool_output" if self.dialect.family == "atem" else "<tool_response>"
+                merge_prefix = _result_prefix(self.dialect)
                 if messages and messages[-1]["role"] == role and messages[-1]["content"].startswith(merge_prefix):
                     messages[-1]["content"] += "\n" + content
                 else:
@@ -371,6 +372,21 @@ def _turn_from_tool_calls(calls: list[dict[str, Any]], *, text: str, reasoning: 
     return ParsedTurn(calls=tuple(parsed), text=text.strip(), scratch_pad=reasoning.strip(), malformed=tuple(malformed))
 
 
+def _result_prefix(dialect: Dialect) -> str:
+    """What a rendered tool result starts with, used to decide whether to merge into the last message.
+
+    Consecutive results go in ONE message per this dialect's own template, so the prefix has to be
+    the dialect's. Getting it wrong does not raise -- it just stops merging, and the model sees a
+    run of separate result turns where its template would have written one. Read off the wire
+    module rather than branched on the family name, so a format added without touching this line
+    still merges correctly instead of silently splitting.
+    """
+    from hermes.protocol import wire_module
+
+    wire = wire_module(dialect)
+    return wire.RESULT_PREFIX if wire is not None else RESPONSE_OPEN
+
+
 def _render_call(step: Step, dialect: Dialect) -> str:
     """Rebuild an assistant turn's call in the dialect the model speaks.
 
@@ -378,20 +394,20 @@ def _render_call(step: Step, dialect: Dialect) -> str:
     conversation it did not have -- and a model reading its own prior turns in a foreign format
     is being taught, mid-episode, that the format is negotiable.
     """
-    if dialect.family == "atem":
-        from hermes.atem import render_tool_call as render_atem
+    from hermes.protocol import wire_module
 
-        return render_atem(step.tool or "", step.args)
+    if (wire := wire_module(dialect)) is not None:
+        return wire.render_tool_call(step.tool or "", step.args)
     from hermes.protocol import render_tool_call
 
     return render_tool_call(step.tool or "", step.args)
 
 
 def _render_response(name: str, content: str, dialect: Dialect) -> str:
-    if dialect.family == "atem":
-        from hermes.atem import render_tool_response as render_atem_response
+    from hermes.protocol import wire_module
 
-        return render_atem_response(name, content)
+    if (wire := wire_module(dialect)) is not None:
+        return wire.render_tool_response(name, content)
     return render_tool_response(name, content)
 
 
@@ -427,7 +443,7 @@ def openai_completion(
 
     It does care about one thing, and not by choice: a server that parses the wire format itself
     returns structured `tool_calls` and an EMPTY `content`, so both are carried back. See
-    `next_steps`, and docs/serving-muse-glimmer.md for what reading only `content` would score.
+    `next_steps`, and docs/serving-qwen3.8.md for what reading only `content` would score.
 
     Sampling parameters are passed through and belong in the run manifest, not here. They
     change the result as surely as the prompt does -- two runs at different temperatures are

@@ -1,7 +1,7 @@
 """Run a submission against the baseline, paired, and report what the gate would say.
 
     python -m miner evaluate --dir ./my-submission --task tc-log-rotation-order \\
-        --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+        --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 
 `check` proves a submission is admissible. This is the only thing that establishes whether it
 *helps*, and the gap between the two is not academic: the first submission written for this

@@ -1,7 +1,7 @@
 """Score a submitted surface against the challenge it was opened over.
 
     python -m validator.score --round r-001 --miner alice \\
-        --base-url http://127.0.0.1:8000/v1 --model qwen3.6-27b --repeats 10
+        --base-url http://127.0.0.1:8000/v1 --model qwen3.8-27b --repeats 10
 
 This is the step that turns an accepted pull request into a decision. `eval.strategy_track` decides
 whether a surface may merge; this runs it and says whether it beat the baseline.
