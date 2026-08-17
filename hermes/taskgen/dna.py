@@ -359,9 +359,15 @@ def _seed_tools(record: dict[str, Any]) -> list[str]:
             if isinstance(entry, str):
                 names.append(entry)
             elif isinstance(entry, dict):
-                fn = entry.get("function") if isinstance(entry.get("function"), dict) else entry
-                if isinstance(fn.get("name"), str):
-                    names.append(fn["name"])
+                # Read once and narrow that value, rather than calling `.get` in the test and
+                # again in the branch. Two calls mean the isinstance guard narrows a different
+                # expression than the one assigned, so `fn` stays `dict | None` and the
+                # `fn.get("name")` below is an attribute access on a possible None.
+                function = entry.get("function")
+                fn = function if isinstance(function, dict) else entry
+                name = fn.get("name")
+                if isinstance(name, str):
+                    names.append(name)
     for turn in record.get("messages") or []:
         if isinstance(turn, dict):
             for call in turn.get("tool_calls") or []:
