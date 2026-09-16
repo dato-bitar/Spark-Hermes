@@ -16,10 +16,17 @@ SALT = "ab" * 32
 
 def _round(tmp_path: Path, *, commitment=None) -> Path:
     rd = tmp_path / "round"
-    (rd / "tasks").mkdir(parents=True); (rd / "withheld").mkdir()
-    task = {"task_id": "t-1", "family": "f", "round_id": "r1", "prompt": "do the thing",
-            "tools": ["terminal"], "published": {"predicates": []},
-            "withheld_commitment": commitment or commitment_for(WITHHELD, SALT)}
+    (rd / "tasks").mkdir(parents=True)
+    (rd / "withheld").mkdir()
+    task = {
+        "task_id": "t-1",
+        "family": "f",
+        "round_id": "r1",
+        "prompt": "do the thing",
+        "tools": ["terminal"],
+        "published": {"predicates": []},
+        "withheld_commitment": commitment or commitment_for(WITHHELD, SALT),
+    }
     (rd / "tasks" / "t-1.json").write_text(json.dumps(task))
     (rd / "withheld" / "t-1.json").write_text(json.dumps({"withheld": WITHHELD, "salt": SALT}))
     return rd
@@ -28,15 +35,34 @@ def _round(tmp_path: Path, *, commitment=None) -> Path:
 def _episodes(tmp_path: Path, spec: list[tuple[str, bool]]) -> Path:
     root = tmp_path / "eps"
     for surface, won in spec:
-        d = root / surface / "t-1"; d.mkdir(parents=True)
-        (d / "episode.json").write_text(json.dumps({
-            "task_id": "t-1", "family": "f", "round_id": "r1", "surface": surface,
-            "verified_success": won, "published_pass": won, "overfit": False, "disqualified": False,
-            "api_calls": 5 if won else 9, "tool_calls": 5, "self_checked": True}))
-        (d / "trajectory.json").write_text(json.dumps([
-            {"from": "system", "value": "GENERIC HERMES FUNCTION-CALLING PROMPT"},
-            {"from": "human", "value": "do the thing"},
-            {"from": "gpt", "value": "<think>plan</think>doing it"}]))
+        d = root / surface / "t-1"
+        d.mkdir(parents=True)
+        (d / "episode.json").write_text(
+            json.dumps(
+                {
+                    "task_id": "t-1",
+                    "family": "f",
+                    "round_id": "r1",
+                    "surface": surface,
+                    "verified_success": won,
+                    "published_pass": won,
+                    "overfit": False,
+                    "disqualified": False,
+                    "api_calls": 5 if won else 9,
+                    "tool_calls": 5,
+                    "self_checked": True,
+                }
+            )
+        )
+        (d / "trajectory.json").write_text(
+            json.dumps(
+                [
+                    {"from": "system", "value": "GENERIC HERMES FUNCTION-CALLING PROMPT"},
+                    {"from": "human", "value": "do the thing"},
+                    {"from": "gpt", "value": "<think>plan</think>doing it"},
+                ]
+            )
+        )
     return root
 
 
@@ -77,9 +103,10 @@ def test_exports_replace_the_converter_s_system_turn(tmp_path):
     rd = _round(tmp_path)
     eps = _episodes(tmp_path, [("null", False), ("5Fminer", True)])
     close(rd, eps, tmp_path / "out")
-    manifest = build(rd, eps, tmp_path / "out" / "close.json", tmp_path / "export",
-                     system_prompt="THE REAL PINNED PROMPT")
-    rows = [json.loads(l) for l in (tmp_path / "export" / "sft.jsonl").read_text().splitlines()]
+    manifest = build(
+        rd, eps, tmp_path / "out" / "close.json", tmp_path / "export", system_prompt="THE REAL PINNED PROMPT"
+    )
+    rows = [json.loads(line) for line in (tmp_path / "export" / "sft.jsonl").read_text().splitlines()]
     assert manifest["sft_rows"] == 1
     assert rows[0]["conversations"][0] == {"from": "system", "value": "THE REAL PINNED PROMPT"}
     assert all("GENERIC HERMES" not in t["value"] for t in rows[0]["conversations"])
@@ -101,7 +128,7 @@ def test_dpo_pairs_never_cross_an_instance(tmp_path):
     eps = _episodes(tmp_path, [("null", False), ("5Fa", True)])
     close(rd, eps, tmp_path / "out")
     build(rd, eps, tmp_path / "out" / "close.json", tmp_path / "export")
-    pairs = [json.loads(l) for l in (tmp_path / "export" / "dpo.jsonl").read_text().splitlines()]
+    pairs = [json.loads(line) for line in (tmp_path / "export" / "dpo.jsonl").read_text().splitlines()]
     assert len(pairs) == 1
     assert pairs[0]["chosen_surface"] == "5Fa" and pairs[0]["rejected_surface"] == "null"
     assert pairs[0]["task_id"] == "t-1"
@@ -112,9 +139,9 @@ def test_a_row_carrying_withheld_material_is_refused(tmp_path):
     rd = _round(tmp_path)
     eps = _episodes(tmp_path, [("null", False), ("5Fa", True)])
     d = eps / "5Fa" / "t-1"
-    (d / "trajectory.json").write_text(json.dumps([
-        {"from": "system", "value": "x"},
-        {"from": "gpt", "value": f"the answer digest is {'a' * 64}"}]))
+    (d / "trajectory.json").write_text(
+        json.dumps([{"from": "system", "value": "x"}, {"from": "gpt", "value": f"the answer digest is {'a' * 64}"}])
+    )
     close(rd, eps, tmp_path / "out")
     manifest = build(rd, eps, tmp_path / "out" / "close.json", tmp_path / "export")
     assert manifest["sft_rows"] == 0 and manifest["gates"]["leaked"] == 1
@@ -131,7 +158,7 @@ def test_the_leaderboard_is_built_only_from_published_artefacts(tmp_path):
     page = render(record)
     assert "5Fminer" in page and "all match" in page
     assert "<title>" in page and "prefers-color-scheme" in page
-    assert SALT not in page                                   # the salt is in reveal.json, not on the page
+    assert SALT not in page  # the salt is in reveal.json, not on the page
 
 
 def test_the_leaderboard_says_why_a_miner_earned_nothing(tmp_path):
@@ -141,7 +168,7 @@ def test_the_leaderboard_says_why_a_miner_earned_nothing(tmp_path):
     rd = _round(tmp_path)
     eps = _episodes(tmp_path, [("null", False), ("5Fminer", True)])
     record = close(rd, eps, tmp_path / "out")
-    assert record["scores"]["5Fminer"]["reason"]              # one episode is far below the window minimum
+    assert record["scores"]["5Fminer"]["reason"]  # one episode is far below the window minimum
     assert "window episodes" in render(record)
 
 
@@ -150,8 +177,8 @@ def test_a_pair_is_not_lost_because_the_first_loser_timed_out(tmp_path):
     first loser happened to be one of those — half a round's training value, lost to directory order."""
     rd = _round(tmp_path)
     eps = _episodes(tmp_path, [("5Fa", True), ("5Fb", False), ("5Fc", False)])
-    (eps / "5Fb" / "t-1" / "trajectory.json").unlink()        # timed out: no trajectory was ever written
+    (eps / "5Fb" / "t-1" / "trajectory.json").unlink()  # timed out: no trajectory was ever written
     close(rd, eps, tmp_path / "out")
     build(rd, eps, tmp_path / "out" / "close.json", tmp_path / "export")
-    pairs = [json.loads(l) for l in (tmp_path / "export" / "dpo.jsonl").read_text().splitlines()]
+    pairs = [json.loads(line) for line in (tmp_path / "export" / "dpo.jsonl").read_text().splitlines()]
     assert len(pairs) == 1 and pairs[0]["rejected_surface"] == "5Fc"

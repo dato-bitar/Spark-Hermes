@@ -29,10 +29,10 @@ __all__ = ["PARAMS_V2", "Params", "score", "stat", "weights"]
 
 @dataclass(frozen=True)
 class Params:
-    z: float = 1.28                     # one-sided 90 %
-    window: int = 8                     # rounds
-    min_episodes: int = 8               # fewer than this in the window pays nothing
-    min_null_successes: int = 4         # fewer than this and the family's efficiency reference is not a measurement
+    z: float = 1.28  # one-sided 90 %
+    window: int = 8  # rounds
+    min_episodes: int = 8  # fewer than this in the window pays nothing
+    min_null_successes: int = 4  # fewer than this and the family's efficiency reference is not a measurement
     min_metric_samples: int = 4
     metrics: tuple[str, ...] = ("api_calls", "tool_calls")
     w_c: float = 0.8
@@ -40,7 +40,7 @@ class Params:
     w_m: dict = field(default_factory=lambda: {"api_calls": 0.5, "tool_calls": 0.5})
     overfit_cutoff: float = 0.25
     copy_penalty: float = 0.5
-    bootstrap: int = 200                # resamples for the NULL-median variance
+    bootstrap: int = 200  # resamples for the NULL-median variance
 
 
 PARAMS_V2 = Params()
@@ -53,8 +53,8 @@ class FamilyReference:
     family: str
     n: int
     successes: int
-    medians: dict          # metric -> median over NULL verified successes
-    samples: dict          # metric -> the values behind that median, for the bootstrap
+    medians: dict  # metric -> median over NULL verified successes
+    samples: dict  # metric -> the values behind that median, for the bootstrap
     requires_self_check: bool = False
 
     @property
@@ -122,8 +122,18 @@ def score(miner: MinerWindow, references: dict, params: Params = PARAMS_V2, *, s
     """
     rng = random.Random(seed)
     eps = [e for e in miner.episodes if not e.get("void")]
-    detail = {"hotkey": miner.hotkey, "n": len(eps), "score": 0.0, "delta_c": 0.0, "delta_e": {},
-              "gate": False, "se": None, "overfit_rate": 0.0, "dq": miner.dq, "reason": None}
+    detail = {
+        "hotkey": miner.hotkey,
+        "n": len(eps),
+        "score": 0.0,
+        "delta_c": 0.0,
+        "delta_e": {},
+        "gate": False,
+        "se": None,
+        "overfit_rate": 0.0,
+        "dq": miner.dq,
+        "reason": None,
+    }
     if len(eps) < params.min_episodes:
         detail["reason"] = f"{len(eps)} window episodes < {params.min_episodes}"
         return detail
@@ -141,7 +151,7 @@ def score(miner: MinerWindow, references: dict, params: Params = PARAMS_V2, *, s
         ref = next(r for _, r in pairs if r.family == family)
         share = sum(1 for _, r in pairs if r.family == family) / n
         if ref.n:
-            ref_var += share ** 2 * ref.p * (1 - ref.p) / ref.n
+            ref_var += share**2 * ref.p * (1 - ref.p) / ref.n
     se = math.sqrt((statistics.variance(ds) / n if n > 1 else 0.0) + ref_var)
     mean_d = statistics.mean(ds)
     detail["se"] = round(se, 6)
@@ -162,12 +172,13 @@ def score(miner: MinerWindow, references: dict, params: Params = PARAMS_V2, *, s
                 median = ref.medians.get(metric)
                 if samples and median:
                     # variance of log(median) ≈ var(median) / median²
-                    ref_median_var += share ** 2 * _median_variance(samples, params.bootstrap, rng) / (median ** 2)
+                    ref_median_var += share**2 * _median_variance(samples, params.bootstrap, rng) / (median**2)
             se_m = math.sqrt((statistics.variance(values) / len(values) if len(values) > 1 else 0.0) + ref_median_var)
             detail["delta_e"][metric] = max(-1.0, min(1.0, statistics.mean(values) - params.z * se_m))
 
     raw = params.w_c * detail["delta_c"] + params.w_e * sum(
-        params.w_m.get(m, 0.0) * x for m, x in detail["delta_e"].items())
+        params.w_m.get(m, 0.0) * x for m, x in detail["delta_e"].items()
+    )
 
     ofr = miner.overfit / max(1, miner.public_passers)
     detail["overfit_rate"] = round(ofr, 4)
@@ -200,7 +211,11 @@ def references_from_stats(family_stats: dict, requires_self_check: dict | None =
         null = record["null"]
         medians = {m: v["median"] for m, v in (null.get("efficiency") or {}).items()}
         out[family] = FamilyReference(
-            family=family, n=null["n"], successes=null["successes"], medians=medians,
+            family=family,
+            n=null["n"],
+            successes=null["successes"],
+            medians=medians,
             samples=(record.get("null_samples") or {}),
-            requires_self_check=bool((requires_self_check or {}).get(family)))
+            requires_self_check=bool((requires_self_check or {}).get(family)),
+        )
     return out

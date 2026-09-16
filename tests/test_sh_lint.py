@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from sh.cli.lint import bundle_digest, check, lint
+from sh.cli.lint import bundle_digest, check
 
 GOOD_SKILL = """---
 name: posix-shell
@@ -25,9 +25,16 @@ def _bundle(tmp_path: Path, files: dict) -> Path:
 
 
 def test_a_plain_strategy_passes(tmp_path):
-    r = check(_bundle(tmp_path, {"SOUL.md": "Be careful.\n",
-                                 "skills/posix-shell/SKILL.md": GOOD_SKILL,
-                                 "skills/posix-shell/references/notes.md": "Detail.\n"}))
+    r = check(
+        _bundle(
+            tmp_path,
+            {
+                "SOUL.md": "Be careful.\n",
+                "skills/posix-shell/SKILL.md": GOOD_SKILL,
+                "skills/posix-shell/references/notes.md": "Detail.\n",
+            },
+        )
+    )
     assert r["ok"], r["problems"]
     assert len(r["files"]) == 3
 
@@ -81,7 +88,8 @@ def test_non_utf8_and_crlf_are_refused(tmp_path):
 
 
 def test_an_empty_bundle_is_refused(tmp_path):
-    root = tmp_path / "empty"; root.mkdir()
+    root = tmp_path / "empty"
+    root.mkdir()
     assert any(p.startswith("L1") for p in check(root)["problems"])
 
 
@@ -101,4 +109,7 @@ def test_the_digest_is_frozen_against_a_golden_value():
     """If this changes, every commitment ever made is invalidated — so it must fail loudly, not drift.
     The value is pinned here deliberately: a test that recomputes the digest and compares it to itself would
     pass through any change to the definition, which is the one thing this must not do."""
-    assert bundle_digest({"SOUL.md": b"Be careful.\n"}) == "8292cff5ce3855a1d9495f1394661b7c26f6acd087fa57699f5156fee5208b57"
+    assert (
+        bundle_digest({"SOUL.md": b"Be careful.\n"})
+        == "8292cff5ce3855a1d9495f1394661b7c26f6acd087fa57699f5156fee5208b57"
+    )

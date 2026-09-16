@@ -48,19 +48,28 @@ def reference_stats(episodes: list[dict], families: set[str], window: list[str],
     for family in sorted(families):
         st = family_stats(episodes, family, window, era)
         records[family] = st.record()
-        samples = {m: [float(e[m]) for e in st.null.episodes
-                       if e.get("verified_success") and isinstance(e.get(m), (int, float))]
-                   for m in PARAMS_V2.metrics}
+        samples = {
+            m: [
+                float(e[m])
+                for e in st.null.episodes
+                if e.get("verified_success") and isinstance(e.get(m), (int, float))
+            ]
+            for m in PARAMS_V2.metrics
+        }
         refs[family] = FamilyReference(
-            family=family, n=st.null.n, successes=st.null.successes,
+            family=family,
+            n=st.null.n,
+            successes=st.null.successes,
             medians={m: v["median"] for m, v in st.null.efficiency().items()},
             samples=samples,
-            requires_self_check=any(e.get("requires_self_check") for e in st.null.episodes))
+            requires_self_check=any(e.get("requires_self_check") for e in st.null.episodes),
+        )
     return records, refs
 
 
-def close(round_dir: Path, episodes_dir: Path, out: Path, *, reveal_dir: Path | None = None,
-          era: str = "e0", params=PARAMS_V2) -> dict:
+def close(
+    round_dir: Path, episodes_dir: Path, out: Path, *, reveal_dir: Path | None = None, era: str = "e0", params=PARAMS_V2
+) -> dict:
     """Score the round and publish everything needed to check it."""
     out.mkdir(parents=True, exist_ok=True)
     tasks = {p.stem: json.loads(p.read_text()) for p in sorted((round_dir / "tasks").glob("*.json"))}
@@ -87,7 +96,7 @@ def close(round_dir: Path, episodes_dir: Path, out: Path, *, reveal_dir: Path | 
     for task_id, task in tasks.items():
         path = reveal_dir / f"{task_id}.json"
         if not path.exists():
-            verified[task_id] = None                       # nothing to reveal (a probe, or an unsealed round)
+            verified[task_id] = None  # nothing to reveal (a probe, or an unsealed round)
             continue
         sealed = json.loads(path.read_text())
         withheld, salt = sealed["withheld"], sealed["salt"]
@@ -96,10 +105,14 @@ def close(round_dir: Path, episodes_dir: Path, out: Path, *, reveal_dir: Path | 
         verified[task_id] = bool(commitment) and verify_commitment(withheld, salt, commitment)
 
     record = {
-        "schema": "sh-round-close-v2", "round_id": round_id, "era": era,
-        "tasks": sorted(tasks), "episodes": len(eps),
+        "schema": "sh-round-close-v2",
+        "round_id": round_id,
+        "era": era,
+        "tasks": sorted(tasks),
+        "episodes": len(eps),
         "family_stats": records,
-        "scores": scores, "weights": w,
+        "scores": scores,
+        "weights": w,
         "commitments_verified": verified,
         "commitments_ok": all(v for v in verified.values() if v is not None),
     }
@@ -110,15 +123,25 @@ def close(round_dir: Path, episodes_dir: Path, out: Path, *, reveal_dir: Path | 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--round", required=True); ap.add_argument("--episodes", required=True)
-    ap.add_argument("--out", required=True); ap.add_argument("--reveal"); ap.add_argument("--era", default="e0")
+    ap.add_argument("--round", required=True)
+    ap.add_argument("--episodes", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--reveal")
+    ap.add_argument("--era", default="e0")
     a = ap.parse_args(argv)
-    r = close(Path(a.round), Path(a.episodes), Path(a.out),
-              reveal_dir=Path(a.reveal) if a.reveal else None, era=a.era)
-    print(json.dumps({"round_id": r["round_id"], "episodes": r["episodes"],
-                      "commitments_ok": r["commitments_ok"],
-                      "weights": r["weights"],
-                      "scores": {h: round(s["score"], 6) for h, s in r["scores"].items()}}, indent=1))
+    r = close(Path(a.round), Path(a.episodes), Path(a.out), reveal_dir=Path(a.reveal) if a.reveal else None, era=a.era)
+    print(
+        json.dumps(
+            {
+                "round_id": r["round_id"],
+                "episodes": r["episodes"],
+                "commitments_ok": r["commitments_ok"],
+                "weights": r["weights"],
+                "scores": {h: round(s["score"], 6) for h, s in r["scores"].items()},
+            },
+            indent=1,
+        )
+    )
     return 0 if r["commitments_ok"] else 1
 
 

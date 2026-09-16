@@ -19,18 +19,36 @@ from sh.validator.episode import run_episode
 from sh.validator.grade import grade
 
 
-def one(task: dict, withheld: dict | None, surface: str, bundle: Path | None, image: str, inference: str, out: Path,
-        network: str = "host", tokens: Path | None = None, usage_dir: Path | None = None,
-        checks_py: Path | None = None) -> dict:
+def one(
+    task: dict,
+    withheld: dict | None,
+    surface: str,
+    bundle: Path | None,
+    image: str,
+    inference: str,
+    out: Path,
+    network: str = "host",
+    tokens: Path | None = None,
+    usage_dir: Path | None = None,
+    checks_py: Path | None = None,
+) -> dict:
     ep = out / surface / task["task_id"]
     if (ep / "episode.json").exists():
         return json.loads((ep / "episode.json").read_text())
     done = (ep / "finish.json").exists() and json.loads((ep / "finish.json").read_text()).get("stage") == "done"
-    if not done:                                       # resume: a finished episode whose grading crashed is only re-graded
+    if not done:  # resume: a finished episode whose grading crashed is only re-graded
         run_episode(task, bundle, image, inference, ep, network=network, tokens_path=tokens, usage_dir=usage_dir)
-    rec = grade(ep, task, withheld, image, bundle_dir=bundle, surface=surface, round_id=task.get("round_id", ""),
-                checks_py=checks_py)
-    if rec.get("void"):          # the provider failed, not the miner: leave nothing cached so a resume re-runs it
+    rec = grade(
+        ep,
+        task,
+        withheld,
+        image,
+        bundle_dir=bundle,
+        surface=surface,
+        round_id=task.get("round_id", ""),
+        checks_py=checks_py,
+    )
+    if rec.get("void"):  # the provider failed, not the miner: leave nothing cached so a resume re-runs it
         return rec
     (ep / "episode.json").write_text(json.dumps(rec, indent=1))
     return rec
@@ -38,10 +56,15 @@ def one(task: dict, withheld: dict | None, surface: str, bundle: Path | None, im
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--round", required=True); ap.add_argument("--surfaces", required=True)
-    ap.add_argument("--image", required=True); ap.add_argument("--inference", required=True)
-    ap.add_argument("--out", required=True); ap.add_argument("--concurrency", type=int, default=1)
-    ap.add_argument("--network", default="host"); ap.add_argument("--tokens", default=None); ap.add_argument("--usage-dir", default=None)
+    ap.add_argument("--round", required=True)
+    ap.add_argument("--surfaces", required=True)
+    ap.add_argument("--image", required=True)
+    ap.add_argument("--inference", required=True)
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--concurrency", type=int, default=1)
+    ap.add_argument("--network", default="host")
+    ap.add_argument("--tokens", default=None)
+    ap.add_argument("--usage-dir", default=None)
     a = ap.parse_args(argv)
     rd, out = Path(a.round), Path(a.out)
     tasks = [json.loads(p.read_text()) for p in sorted((rd / "tasks").glob("*.json"))]
@@ -54,17 +77,36 @@ def main(argv=None) -> int:
         name, _, d = s.partition("=")
         surfaces[name] = Path(d) if d else None
     jobs = [(t, withheld.get(t["task_id"]), name, b) for name, b in surfaces.items() for t in tasks]
-    t0 = time.time(); recs = []
+    t0 = time.time()
+    recs = []
     with ThreadPoolExecutor(max_workers=a.concurrency) as pool:
-        futs = {pool.submit(one, t, w, name, b, a.image, a.inference, out, a.network,
-                            Path(a.tokens) if a.tokens else None, Path(a.usage_dir) if a.usage_dir else None,
-                            checks_for.get(t.get("family", ""))): (name, t["task_id"]) for t, w, name, b in jobs}
+        futs = {
+            pool.submit(
+                one,
+                t,
+                w,
+                name,
+                b,
+                a.image,
+                a.inference,
+                out,
+                a.network,
+                Path(a.tokens) if a.tokens else None,
+                Path(a.usage_dir) if a.usage_dir else None,
+                checks_for.get(t.get("family", "")),
+            ): (name, t["task_id"])
+            for t, w, name, b in jobs
+        }
         for f in as_completed(futs):
             name, tid = futs[f]
             try:
-                r = f.result(); recs.append(r)
-                print(f"{name:>10} {tid}: verified={r['verified_success']} overfit={r['overfit']} dq={r['disqualified']} "
-                      f"calls={r['api_calls']} wall={r['wall_s']}", flush=True)
+                r = f.result()
+                recs.append(r)
+                print(
+                    f"{name:>10} {tid}: verified={r['verified_success']} overfit={r['overfit']} dq={r['disqualified']} "
+                    f"calls={r['api_calls']} wall={r['wall_s']}",
+                    flush=True,
+                )
             except Exception as e:
                 print(f"{name:>10} {tid}: ERROR {e!r}"[:300], flush=True)
     total = time.time() - t0
@@ -75,10 +117,16 @@ def main(argv=None) -> int:
         if rs:
             walls = [r["wall_s"] for r in rs if r.get("wall_s")]
             summary["per_surface"][name] = {
-                "n": len(rs), "verified": sum(r["verified_success"] for r in rs), "overfit": sum(r["overfit"] for r in rs),
-                "dq": sum(r["disqualified"] for r in rs), "partial": sum(r["partial"] for r in rs), "timed_out": sum(r["timed_out"] for r in rs),
-                "mean_wall_s": round(statistics.mean(walls), 1) if walls else None, "mean_api_calls": round(statistics.mean(r["api_calls"] or 0 for r in rs), 1),
-                "self_checked": sum(bool(r["self_checked"]) for r in rs)}
+                "n": len(rs),
+                "verified": sum(r["verified_success"] for r in rs),
+                "overfit": sum(r["overfit"] for r in rs),
+                "dq": sum(r["disqualified"] for r in rs),
+                "partial": sum(r["partial"] for r in rs),
+                "timed_out": sum(r["timed_out"] for r in rs),
+                "mean_wall_s": round(statistics.mean(walls), 1) if walls else None,
+                "mean_api_calls": round(statistics.mean(r["api_calls"] or 0 for r in rs), 1),
+                "self_checked": sum(bool(r["self_checked"]) for r in rs),
+            }
     (out / "summary.json").write_text(json.dumps(summary, indent=1))
     print(json.dumps(summary, indent=1))
     return 0
