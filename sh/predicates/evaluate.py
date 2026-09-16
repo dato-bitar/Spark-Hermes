@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Mapping, Sequence
 
-from .schema import CHECK, CMD, OPS, Predicate, parse_all
+from .schema import OPS, Predicate, parse_all
 
 __all__ = ["Verdict", "evaluate", "judge"]
 

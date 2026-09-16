@@ -13,4 +13,5 @@ def test_the_restart_script_and_the_driver_name_the_same_store():
     flag = re.search(r'--tokens\s+"([^"]+)"', script)
     assert flag, "proxy-restart.sh no longer passes --tokens"
     assert not flag.group(1).endswith(".json"), (
-        f"--tokens {flag.group(1)} names a file; the store is a directory (one file per token)")
+        f"--tokens {flag.group(1)} names a file; the store is a directory (one file per token)"
+    )

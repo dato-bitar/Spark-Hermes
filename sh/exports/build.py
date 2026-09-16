@@ -45,19 +45,23 @@ def _rows_for(episode_dir: Path, episode: dict, task: dict, system_prompt: str) 
     body = [t for t in turns if t.get("from") != "system"]
     return {
         "schema": SCHEMA_SFT,
-        "task_id": episode.get("task_id"), "family": episode.get("family"),
-        "round_id": episode.get("round_id"), "surface": episode.get("surface"),
+        "task_id": episode.get("task_id"),
+        "family": episode.get("family"),
+        "round_id": episode.get("round_id"),
+        "surface": episode.get("surface"),
         "conversations": [{"from": "system", "value": system_prompt}, *body],
-        "tools": task.get("tools", []),                    # Rule 2 (V4): schemas travel as a field, not as prose
+        "tools": task.get("tools", []),  # Rule 2 (V4): schemas travel as a field, not as prose
         "verified_success": bool(episode.get("verified_success")),
-        "api_calls": episode.get("api_calls"), "tool_calls": episode.get("tool_calls"),
+        "api_calls": episode.get("api_calls"),
+        "tool_calls": episode.get("tool_calls"),
         "self_checked": episode.get("self_checked"),
         "pins": episode.get("pins"),
     }
 
 
-def build(round_dir: Path, episodes_dir: Path, close_file: Path, out: Path, *,
-          system_prompt: str | None = None) -> dict:
+def build(
+    round_dir: Path, episodes_dir: Path, close_file: Path, out: Path, *, system_prompt: str | None = None
+) -> dict:
     out.mkdir(parents=True, exist_ok=True)
     tasks = {p.stem: json.loads(p.read_text()) for p in sorted((round_dir / "tasks").glob("*.json"))}
     closed = json.loads(close_file.read_text())
@@ -82,12 +86,16 @@ def build(round_dir: Path, episodes_dir: Path, close_file: Path, out: Path, *,
         if not episode.get("verified_success"):
             gates["not_verified"] += 1
             continue
-        row = _rows_for(episode_json.parent, episode, task,
-                        system_prompt or "You are Hermes, an agent operating a terminal and a filesystem.")
+        row = _rows_for(
+            episode_json.parent,
+            episode,
+            task,
+            system_prompt or "You are Hermes, an agent operating a terminal and a filesystem.",
+        )
         if row is None:
             gates["no_trajectory"] += 1
             continue
-        if (leaked := _leak_scan(json.dumps(row), secrets)):
+        if _leak_scan(json.dumps(row), secrets):
             gates["leaked"] += 1
             continue
         sft.append(row)
@@ -101,24 +109,45 @@ def build(round_dir: Path, episodes_dir: Path, close_file: Path, out: Path, *,
         # Take the first side of each pair that actually yields a row. An episode killed on its timeout has no
         # trajectory at all, and picking only the first loser silently dropped every pair whose first loser
         # happened to be one of those — half the training value of the round, lost to list order.
-        chosen = next((row for e, d in entries
-                       if e.get("verified_success") and not e.get("disqualified")
-                       and (row := _rows_for(d, e, task, prompt))), None)
-        rejected = next((row for e, d in entries
-                         if not e.get("verified_success") and not e.get("void")
-                         and (row := _rows_for(d, e, task, prompt))), None)
+        chosen = next(
+            (
+                row
+                for e, d in entries
+                if e.get("verified_success") and not e.get("disqualified") and (row := _rows_for(d, e, task, prompt))
+            ),
+            None,
+        )
+        rejected = next(
+            (
+                row
+                for e, d in entries
+                if not e.get("verified_success") and not e.get("void") and (row := _rows_for(d, e, task, prompt))
+            ),
+            None,
+        )
         if chosen and rejected:
-            dpo.append({"schema": SCHEMA_DPO, "task_id": task_id,
-                        "family": chosen["family"], "round_id": chosen["round_id"],
-                        "prompt": task.get("prompt"),
-                        "chosen": chosen["conversations"], "rejected": rejected["conversations"],
-                        "chosen_surface": chosen["surface"], "rejected_surface": rejected["surface"]})
+            dpo.append(
+                {
+                    "schema": SCHEMA_DPO,
+                    "task_id": task_id,
+                    "family": chosen["family"],
+                    "round_id": chosen["round_id"],
+                    "prompt": task.get("prompt"),
+                    "chosen": chosen["conversations"],
+                    "rejected": rejected["conversations"],
+                    "chosen_surface": chosen["surface"],
+                    "rejected_surface": rejected["surface"],
+                }
+            )
 
     (out / "sft.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sft))
     (out / "dpo.jsonl").write_text("".join(json.dumps(r) + "\n" for r in dpo))
     manifest = {
-        "schema": "sh-export-manifest-v2", "round_id": closed.get("round_id"),
-        "sft_rows": len(sft), "dpo_pairs": len(dpo), "gates": gates,
+        "schema": "sh-export-manifest-v2",
+        "round_id": closed.get("round_id"),
+        "sft_rows": len(sft),
+        "dpo_pairs": len(dpo),
+        "gates": gates,
         "families": sorted({r["family"] for r in sft if r.get("family")}),
         "sft_sha256": hashlib.sha256((out / "sft.jsonl").read_bytes()).hexdigest(),
         "dpo_sha256": hashlib.sha256((out / "dpo.jsonl").read_bytes()).hexdigest(),
@@ -130,13 +159,16 @@ def build(round_dir: Path, episodes_dir: Path, close_file: Path, out: Path, *,
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--round", required=True); ap.add_argument("--episodes", required=True)
-    ap.add_argument("--close", required=True); ap.add_argument("--out", required=True)
+    ap.add_argument("--round", required=True)
+    ap.add_argument("--episodes", required=True)
+    ap.add_argument("--close", required=True)
+    ap.add_argument("--out", required=True)
     ap.add_argument("--system-prompt")
     a = ap.parse_args(argv)
     prompt = Path(a.system_prompt).read_text() if a.system_prompt else None
-    print(json.dumps(build(Path(a.round), Path(a.episodes), Path(a.close), Path(a.out),
-                           system_prompt=prompt), indent=1))
+    print(
+        json.dumps(build(Path(a.round), Path(a.episodes), Path(a.close), Path(a.out), system_prompt=prompt), indent=1)
+    )
     return 0
 
 

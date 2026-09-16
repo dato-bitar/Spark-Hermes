@@ -23,6 +23,7 @@ def test_the_family_checks_file_is_placed_in_the_grading_volume(tmp_path, monkey
 
             def check_returncode(self):
                 pass
+
         if input:
             sent["tar"] = input
         return R()
@@ -31,12 +32,13 @@ def test_the_family_checks_file_is_placed_in_the_grading_volume(tmp_path, monkey
     checks = tmp_path / "checks.py"
     checks.write_text("CHECKS = {'pid_agrees': lambda ws: True}\n")
     (tmp_path / "snapshot.tar").write_bytes(b"")
-    task = {"task_id": "t-1", "commands": [], "timeout_s": 60, "protected_paths": [],
-            "published": {"predicates": []}}
+    task = {"task_id": "t-1", "commands": [], "timeout_s": 60, "protected_paths": [], "published": {"predicates": []}}
 
     g.grade_in_container(tmp_path, task, None, "img", checks)
 
-    import io, tarfile
+    import io
+    import tarfile
+
     with tarfile.open(fileobj=io.BytesIO(sent["tar"])) as tf:
         names = tf.getnames()
         assert "checks.py" in names
@@ -54,18 +56,20 @@ def test_a_family_without_custom_predicates_sends_no_checks_file(tmp_path, monke
 
             def check_returncode(self):
                 pass
+
         if input:
             sent["tar"] = input
         return R()
 
     monkeypatch.setattr(g, "_run", fake_run)
     (tmp_path / "snapshot.tar").write_bytes(b"")
-    task = {"task_id": "t-1", "commands": [], "timeout_s": 60, "protected_paths": [],
-            "published": {"predicates": []}}
+    task = {"task_id": "t-1", "commands": [], "timeout_s": 60, "protected_paths": [], "published": {"predicates": []}}
 
     g.grade_in_container(tmp_path, task, None, "img")
 
-    import io, tarfile
+    import io
+    import tarfile
+
     with tarfile.open(fileobj=io.BytesIO(sent["tar"])) as tf:
         assert "checks.py" not in tf.getnames()
 
@@ -76,12 +80,13 @@ def test_the_in_container_grader_loads_checks_and_refuses_a_malformed_file(tmp_p
 
     monkeypatch.syspath_prepend(str(Path(__file__).parent.parent / "sh/validator/runner"))
     spec = importlib.util.spec_from_file_location(
-        "runner_grade", Path(__file__).parent.parent / "sh/validator/runner/grade.py")
+        "runner_grade", Path(__file__).parent.parent / "sh/validator/runner/grade.py"
+    )
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setenv("SH_EP", str(tmp_path))
     spec.loader.exec_module(module)
 
-    assert module._checks() == {}                                   # no file: a family with no custom predicates
+    assert module._checks() == {}  # no file: a family with no custom predicates
     (tmp_path / "checks.py").write_text("CHECKS = {'always': lambda ws: True}\n")
     assert set(module._checks()) == {"always"}
     (tmp_path / "checks.py").write_text("SOMETHING_ELSE = 1\n")
@@ -109,14 +114,20 @@ def test_a_missing_baseline_is_sent_as_missing_not_as_an_empty_one(tmp_path, mon
 
             def check_returncode(self):
                 pass
+
         if input:
             sent["tar"] = input
         return R()
 
     monkeypatch.setattr(g, "_run", fake_run)
     (tmp_path / "snapshot.tar").write_bytes(b"")
-    task = {"task_id": "t-1", "commands": [], "timeout_s": 60, "protected_paths": ["bin/server.py"],
-            "published": {"predicates": []}}
+    task = {
+        "task_id": "t-1",
+        "commands": [],
+        "timeout_s": 60,
+        "protected_paths": ["bin/server.py"],
+        "published": {"predicates": []},
+    }
 
     g.grade_in_container(tmp_path, task, None, "img")
     with tarfile.open(fileobj=io.BytesIO(sent["tar"])) as tf:

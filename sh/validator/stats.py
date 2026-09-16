@@ -32,16 +32,17 @@ def wilson(successes: int, n: int, *, z: float = Z_95) -> tuple[float, float]:
     half = z * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n)) / d
     return (max(0.0, centre - half), min(1.0, centre + half))
 
+
 # Label bands over the NULL arm's Wilson interval. A family is only worth a round if the baseline sometimes
 # fails it (otherwise miners have no headroom) and something can sometimes pass it (otherwise no one is measured).
-TRIVIAL_LOW = 0.80          # baseline reliably solves it
-TRIVIAL_EFFICIENCY_MARGIN = 1.15   # … but a trivial family stays while it still costs the baseline calls (FR-TG-9)
+TRIVIAL_LOW = 0.80  # baseline reliably solves it
+TRIVIAL_EFFICIENCY_MARGIN = 1.15  # … but a trivial family stays while it still costs the baseline calls (FR-TG-9)
 # "Impossible" is a statement that *nothing* passes, and a Wilson bound is the wrong instrument for it: at 0/16 the
 # upper bound is still 0.19, so any threshold tight enough to mean "never" would need hundreds of episodes. The
 # evidence that matters is a clean sweep of zeros in both arms over a window with enough episodes to notice.
 IMPOSSIBLE_MIN_N = 16
-MIN_POOLED = 8              # fewer observations than this describe nothing (FR-TG-9)
-MAX_PARTIAL_RATE = 0.5      # harness/template fault, not a task property (FR-BL-3)
+MIN_POOLED = 8  # fewer observations than this describe nothing (FR-TG-9)
+MAX_PARTIAL_RATE = 0.5  # harness/template fault, not a task property (FR-BL-3)
 
 EFFICIENCY_METRICS = ("api_calls", "tool_calls")
 
@@ -50,7 +51,10 @@ def _quantiles(values: list[float]) -> dict[str, float] | None:
     if not values:
         return None
     s = sorted(values)
-    q = lambda p: s[min(len(s) - 1, int(p * (len(s) - 1) + 0.5))]
+
+    def q(p):
+        return s[min(len(s) - 1, int(p * (len(s) - 1) + 0.5))]
+
     return {"median": statistics.median(s), "p25": q(0.25), "n": len(s)}
 
 
@@ -84,13 +88,18 @@ class Arm:
         out = {}
         for m in EFFICIENCY_METRICS:
             vals = [float(e[m]) for e in won if isinstance(e.get(m), (int, float))]
-            if (q := _quantiles(vals)):
+            if q := _quantiles(vals):
                 out[m] = q
         return out
 
     def record(self) -> dict:
-        r = {"n": self.n, "successes": self.successes, "p": self.p, "wilson": self.wilson(),
-             "efficiency": self.efficiency()}
+        r = {
+            "n": self.n,
+            "successes": self.successes,
+            "p": self.p,
+            "wilson": self.wilson(),
+            "efficiency": self.efficiency(),
+        }
         return r
 
 
@@ -136,8 +145,11 @@ class FamilyStats:
         """
         out = {}
         for metric in EFFICIENCY_METRICS:
-            pairs = [(n, c) for task_id, n in self._by_task(self.null, metric).items()
-                     if (c := self._by_task(self.canon, metric).get(task_id)) is not None]
+            pairs = [
+                (n, c)
+                for task_id, n in self._by_task(self.null, metric).items()
+                if (c := self._by_task(self.canon, metric).get(task_id)) is not None
+            ]
             if not pairs:
                 continue
             null_total = sum(n for n, _ in pairs)
@@ -156,7 +168,9 @@ class FamilyStats:
 
     def paired_instances(self) -> int:
         """How many instances both arms solved — the sample `delta_e` actually rests on."""
-        return len({t for t in self._by_task(self.null, "api_calls")} & {t for t in self._by_task(self.canon, "api_calls")})
+        return len(
+            {t for t in self._by_task(self.null, "api_calls")} & {t for t in self._by_task(self.canon, "api_calls")}
+        )
 
     def retirement(self) -> str | None:
         """Why the family should leave rotation, or None. Order matters: a harness fault is not a task property."""
@@ -169,35 +183,63 @@ class FamilyStats:
             ref = self.efficiency_reference.get("api_calls")
             p25 = (self.null.efficiency().get("api_calls") or {}).get("p25")
             if ref and p25 is not None and p25 <= TRIVIAL_EFFICIENCY_MARGIN * ref:
-                return (f"trivial and cheap for the baseline (p25 api_calls {p25} ≤ "
-                        f"{TRIVIAL_EFFICIENCY_MARGIN}×{ref}) — no headroom left (FR-TG-9)")
-        if self.pooled >= MIN_POOLED and self.canon.n >= MIN_POOLED and (self.delta_c() or 0) <= 0 and not self.delta_e():
+                return (
+                    f"trivial and cheap for the baseline (p25 api_calls {p25} ≤ "
+                    f"{TRIVIAL_EFFICIENCY_MARGIN}×{ref}) — no headroom left (FR-TG-9)"
+                )
+        if (
+            self.pooled >= MIN_POOLED
+            and self.canon.n >= MIN_POOLED
+            and (self.delta_c() or 0) <= 0
+            and not self.delta_e()
+        ):
             return "CANON no longer beats NULL — prose has stopped helping (FR-BL-5)"
         return None
 
     def record(self) -> dict:
-        canon = self.canon.record() | {"delta_c": self.delta_c(), "delta_e": self.delta_e(),
-                                       "delta_e_paired_instances": self.paired_instances()}
+        canon = self.canon.record() | {
+            "delta_c": self.delta_c(),
+            "delta_e": self.delta_e(),
+            "delta_e_paired_instances": self.paired_instances(),
+        }
         retire = self.retirement()
-        return {"schema": "sh-family-stats-v2", "family": self.family, "era": self.era, "window": self.window,
-                "null": self.null.record(), "canon": canon, "label": self.label(),
-                "partial_rate": round(self.partial_rate, 4), "in_rotation": retire is None, "retirement": retire}
+        return {
+            "schema": "sh-family-stats-v2",
+            "family": self.family,
+            "era": self.era,
+            "window": self.window,
+            "null": self.null.record(),
+            "canon": canon,
+            "label": self.label(),
+            "partial_rate": round(self.partial_rate, 4),
+            "in_rotation": retire is None,
+            "retirement": retire,
+        }
 
 
-def family_stats(episodes: list[dict], family: str, window: list[str], era: str,
-                 efficiency_reference: dict[str, int] | None = None) -> FamilyStats:
+def family_stats(
+    episodes: list[dict], family: str, window: list[str], era: str, efficiency_reference: dict[str, int] | None = None
+) -> FamilyStats:
     """Pool the reference arms for one family over `window` in `era`. Miner surfaces are ignored here."""
     rounds = set(window)
-    mine = [e for e in episodes
-            if e.get("family") == family and e.get("round_id") in rounds and e.get("era", era) == era
-            and not e.get("void")]      # an episode the provider never served is not evidence about the family
+    mine = [
+        e
+        for e in episodes
+        if e.get("family") == family and e.get("round_id") in rounds and e.get("era", era) == era and not e.get("void")
+    ]  # an episode the provider never served is not evidence about the family
     null = Arm([e for e in mine if e.get("surface") == "null"])
     canon = Arm([e for e in mine if e.get("surface") == "canon"])
     ref_eps = null.episodes + canon.episodes
     partials = sum(1 for e in ref_eps if e.get("partial") or e.get("timed_out"))
-    return FamilyStats(family=family, window=list(window), era=era, null=null, canon=canon,
-                       partial_rate=partials / len(ref_eps) if ref_eps else 0.0,
-                       efficiency_reference=efficiency_reference or {})
+    return FamilyStats(
+        family=family,
+        window=list(window),
+        era=era,
+        null=null,
+        canon=canon,
+        partial_rate=partials / len(ref_eps) if ref_eps else 0.0,
+        efficiency_reference=efficiency_reference or {},
+    )
 
 
 def load_episodes(*paths: Path) -> list[dict]:
@@ -207,7 +249,7 @@ def load_episodes(*paths: Path) -> list[dict]:
         if p.is_dir():
             out += [json.loads(f.read_text()) for f in sorted(p.rglob("episode.json"))]
         elif p.suffix == ".jsonl":
-            out += [json.loads(l) for l in p.read_text().splitlines() if l.strip()]
+            out += [json.loads(line) for line in p.read_text().splitlines() if line.strip()]
         else:
             out.append(json.loads(p.read_text()))
     return out
@@ -215,10 +257,13 @@ def load_episodes(*paths: Path) -> list[dict]:
 
 def main(argv=None) -> int:
     import argparse
+
     ap = argparse.ArgumentParser(description="recompute FamilyStats from archived episodes")
-    ap.add_argument("paths", nargs="+"); ap.add_argument("--family", required=True)
+    ap.add_argument("paths", nargs="+")
+    ap.add_argument("--family", required=True)
     ap.add_argument("--window", required=True, help="comma-separated round ids")
-    ap.add_argument("--era", default="e0"); ap.add_argument("--efficiency-reference", default="{}")
+    ap.add_argument("--era", default="e0")
+    ap.add_argument("--efficiency-reference", default="{}")
     a = ap.parse_args(argv)
     eps = load_episodes(*[Path(p) for p in a.paths])
     s = family_stats(eps, a.family, a.window.split(","), a.era, json.loads(a.efficiency_reference))

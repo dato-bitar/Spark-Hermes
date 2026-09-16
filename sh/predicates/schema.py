@@ -15,7 +15,20 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-__all__ = ["OPS", "PATH", "TEXT", "INT", "NUMBER", "SHA256", "MODE", "CMD", "CHECK", "Predicate", "PredicateError", "parse"]
+__all__ = [
+    "OPS",
+    "PATH",
+    "TEXT",
+    "INT",
+    "NUMBER",
+    "SHA256",
+    "MODE",
+    "CMD",
+    "CHECK",
+    "Predicate",
+    "PredicateError",
+    "parse",
+]
 
 PATH, TEXT, INT, NUMBER, SHA256, MODE, CMD, CHECK = "path", "text", "int", "number", "sha256", "mode", "cmd", "check"
 

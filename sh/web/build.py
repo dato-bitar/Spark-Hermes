@@ -50,20 +50,22 @@ def render(close: dict) -> str:
         reason = f'<div class="why">{html.escape(str(s["reason"]))}</div>' if s.get("reason") else ""
         body.append(
             f'<tr><td><span class="hotkey">{html.escape(s["hotkey"])}</span>{reason}</td>'
-            f'<td>{rank}</td><td>{s["n"]}</td>'
-            f'<td>{s.get("mean_d", 0):+.3f}</td><td>{s["delta_c"]:.3f}</td>'
-            f'<td>{"yes" if s["gate"] else "no"}</td>'
-            f'<td>{s["overfit_rate"]:.2f}</td><td>{s["dq"]}</td>'
-            f'<td class="{"zero" if w == 0 else ""}">{w:.3f}</td></tr>')
+            f"<td>{rank}</td><td>{s['n']}</td>"
+            f"<td>{s.get('mean_d', 0):+.3f}</td><td>{s['delta_c']:.3f}</td>"
+            f"<td>{'yes' if s['gate'] else 'no'}</td>"
+            f"<td>{s['overfit_rate']:.2f}</td><td>{s['dq']}</td>"
+            f'<td class="{"zero" if w == 0 else ""}">{w:.3f}</td></tr>'
+        )
 
     verified = close.get("commitments_verified", {})
     checked = [t for t, v in verified.items() if v is not None]
     ok = close.get("commitments_ok")
     families = "".join(
-        f'<tr><td>{html.escape(f)}</td><td>{r["null"]["n"]}</td><td>{r["null"]["p"] if r["null"]["p"] is None else f"{r["null"]["p"]:.2f}"}</td>'
-        f'<td>{r["canon"]["p"] if r["canon"]["p"] is None else f"{r["canon"]["p"]:.2f}"}</td>'
-        f'<td>{r["canon"].get("delta_c")}</td><td>{html.escape(str(r["label"]))}</td></tr>'
-        for f, r in close.get("family_stats", {}).items())
+        f"<tr><td>{html.escape(f)}</td><td>{r['null']['n']}</td><td>{r['null']['p'] if r['null']['p'] is None else f'{r["null"]["p"]:.2f}'}</td>"
+        f"<td>{r['canon']['p'] if r['canon']['p'] is None else f'{r["canon"]["p"]:.2f}'}</td>"
+        f"<td>{r['canon'].get('delta_c')}</td><td>{html.escape(str(r['label']))}</td></tr>"
+        for f, r in close.get("family_stats", {}).items()
+    )
 
     return f"""<title>Spark-Hermes {html.escape(str(close.get("round_id", "")))}</title>
 <style>{STYLE}</style>
@@ -100,9 +102,11 @@ The revealed halves and their salts are published in <code>reveal.json</code>, s
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--close", required=True); ap.add_argument("--out", required=True)
+    ap.add_argument("--close", required=True)
+    ap.add_argument("--out", required=True)
     a = ap.parse_args(argv)
-    out = Path(a.out); out.mkdir(parents=True, exist_ok=True)
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
     page = render(json.loads(Path(a.close).read_text()))
     (out / "index.html").write_text(page)
     print(f"{out / 'index.html'} ({len(page)} bytes)")

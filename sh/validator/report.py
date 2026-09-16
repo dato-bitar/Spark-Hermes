@@ -1,6 +1,6 @@
 """Read a batch/reference archive and print the per-surface table that sets `B` and `T` (spec §5.8).
 
-    python -m sh.validator.report OUT_DIR [--family posix_report --efficiency-reference '{"api_calls": 6}']
+python -m sh.validator.report OUT_DIR [--family posix_report --efficiency-reference '{"api_calls": 6}']
 """
 
 from __future__ import annotations
@@ -22,7 +22,10 @@ def rows(episodes: list[dict]) -> dict[str, dict]:
         walls = sorted(float(e.get("wall_s") or 0) for e in eps)
         calls = sorted(float(e.get("api_calls") or 0) for e in eps)
         toks = [((e.get("tokens") or {}).get("prompt_tokens") or 0) for e in eps]
-        pick = lambda xs, q: xs[min(len(xs) - 1, int(q * (len(xs) - 1) + 0.5))] if xs else 0
+
+        def pick(xs, q):
+            return xs[min(len(xs) - 1, int(q * (len(xs) - 1) + 0.5))] if xs else 0
+
         out[surface] = {
             "n": len(eps),
             "verified": sum(1 for e in eps if e.get("verified_success")),
@@ -40,8 +43,11 @@ def rows(episodes: list[dict]) -> dict[str, dict]:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("paths", nargs="+"); ap.add_argument("--family"); ap.add_argument("--window", default="")
-    ap.add_argument("--era", default="e0"); ap.add_argument("--efficiency-reference", default="{}")
+    ap.add_argument("paths", nargs="+")
+    ap.add_argument("--family")
+    ap.add_argument("--window", default="")
+    ap.add_argument("--era", default="e0")
+    ap.add_argument("--efficiency-reference", default="{}")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     eps = load_episodes(*[Path(p) for p in a.paths])

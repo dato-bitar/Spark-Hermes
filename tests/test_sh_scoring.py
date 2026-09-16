@@ -2,18 +2,32 @@
 
 from __future__ import annotations
 
-import sh.scoring.v2 as v2
-from sh.scoring.v2 import PARAMS_V2, FamilyReference, MinerWindow, score, stat, weights
+from sh.scoring.v2 import FamilyReference, MinerWindow, score, stat, weights
 
-REF = FamilyReference(family="f", n=16, successes=8, medians={"api_calls": 10, "tool_calls": 10},
-                      samples={"api_calls": [9, 10, 10, 11, 12, 8, 10, 10],
-                               "tool_calls": [9, 10, 10, 11, 12, 8, 10, 10]})
+REF = FamilyReference(
+    family="f",
+    n=16,
+    successes=8,
+    medians={"api_calls": 10, "tool_calls": 10},
+    samples={"api_calls": [9, 10, 10, 11, 12, 8, 10, 10], "tool_calls": [9, 10, 10, 11, 12, 8, 10, 10]},
+)
 
 
 def _eps(n, wins, *, calls=10, family="f", **extra):
-    return [{"family": family, "verified_success": i < wins, "published_pass": i < wins,
-             "api_calls": calls, "tool_calls": calls, "self_checked": True, "overfit": False,
-             "disqualified": False, **extra} for i in range(n)]
+    return [
+        {
+            "family": family,
+            "verified_success": i < wins,
+            "published_pass": i < wins,
+            "api_calls": calls,
+            "tool_calls": calls,
+            "self_checked": True,
+            "overfit": False,
+            "disqualified": False,
+            **extra,
+        }
+        for i in range(n)
+    ]
 
 
 def test_a_miner_at_the_baseline_rate_is_paid_nothing():
@@ -102,7 +116,7 @@ def test_scoring_is_reproducible():
 def test_weights_normalise_and_ignore_the_references():
     w = weights({"a": 0.3, "b": 0.1, "c": 0.0})
     assert abs(sum(w.values()) - 1.0) < 1e-9 and w["c"] == 0.0
-    assert weights({"a": 0.0, "b": 0.0}) == {"a": 0.0, "b": 0.0}       # an all-zero round pays no one
+    assert weights({"a": 0.0, "b": 0.0}) == {"a": 0.0, "b": 0.0}  # an all-zero round pays no one
 
 
 def test_the_worked_example_from_the_spec_reproduces():
@@ -111,8 +125,8 @@ def test_the_worked_example_from_the_spec_reproduces():
     for i in range(4):
         fam = f"f{i}"
         refs[fam] = FamilyReference(family=fam, n=16, successes=6, medians={}, samples={})
-        eps += _eps(16, 10, family=fam)                                # 10/16 = 0.625 vs 0.375 → d ≈ +0.25
+        eps += _eps(16, 10, family=fam)  # 10/16 = 0.625 vs 0.375 → d ≈ +0.25
     s = score(MinerWindow("m", eps), refs)
     assert 0.2 < s["mean_d"] < 0.3
-    assert 0.05 < s["se"] < 0.12                                       # the spec's 0.083, to the nearest band
-    assert 0.10 < s["delta_c"] < 0.20                                  # the spec's 0.144
+    assert 0.05 < s["se"] < 0.12  # the spec's 0.083, to the nearest band
+    assert 0.10 < s["delta_c"] < 0.20  # the spec's 0.144

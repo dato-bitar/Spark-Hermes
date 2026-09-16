@@ -106,7 +106,7 @@ def lint(files: dict) -> list[str]:
             problems.append(f"L4 {path}: inline shell marker `!``")
         if ENV_INTERP in text:
             problems.append(f"L5 {path}: environment interpolation ${{HERMES_")
-        if (m := URLISH.search(text)):
+        if m := URLISH.search(text):
             problems.append(f"L6 {path}: network reference {m.group(0)!r}")
         for pattern in GUARD_PATTERNS:
             if pattern in text.lower():
@@ -126,14 +126,21 @@ def lint(files: dict) -> list[str]:
 def check(root: Path) -> dict:
     files, problems = collect(root)
     problems += lint(files)
-    return {"schema": "sh-lint-v2", "bundle": str(root), "files": sorted(files),
-            "bytes": sum(len(b) for b in files.values()),
-            "bundle_sha256": bundle_digest(files), "ok": not problems, "problems": problems}
+    return {
+        "schema": "sh-lint-v2",
+        "bundle": str(root),
+        "files": sorted(files),
+        "bytes": sum(len(b) for b in files.values()),
+        "bundle_sha256": bundle_digest(files),
+        "ok": not problems,
+        "problems": problems,
+    }
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="lint a strategy bundle and print its canonical digest")
-    ap.add_argument("bundle"); ap.add_argument("--json", action="store_true")
+    ap.add_argument("bundle")
+    ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     root = Path(a.bundle)
     if not root.is_dir():
