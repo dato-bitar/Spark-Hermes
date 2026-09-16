@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, sh/v2-pipeline]
+    branches: [main]
     paths-ignore: ["docs/**", "rounds/**"]  # the loop publishes here every few minutes
   pull_request:
 

@@ -48,7 +48,7 @@ from sh.validator.stats import load_episodes
 from sh.web.build import render as render_leaderboard
 
 REPO = "gittensor-model-hub/Spark-Hermes"
-BRANCH = "sh/v2-pipeline"
+BRANCH = "main"
 LABEL_STRATEGY, LABEL_SCORED, LABEL_CROWN = "sh:strategy", "sh:round:scored", "sh:round:crown"
 HF_REPO = "gittensor-model-hub/spark-hermes-rounds"
 LIVE = "docs/live/live.json"  # what the dashboard polls; committed on every stage change

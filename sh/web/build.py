@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 
 DEFAULT_REPO = "gittensor-model-hub/Spark-Hermes"
-DEFAULT_BRANCH = "sh/v2-pipeline"
+DEFAULT_BRANCH = "main"
 
 
 def _e(x) -> str:

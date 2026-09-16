@@ -30,7 +30,7 @@ from sh.cli import attest
 from sh.cli.lint import bundle_digest, check, collect
 
 REPO = "gittensor-model-hub/Spark-Hermes"
-BRANCH = "sh/v2-pipeline"
+BRANCH = "main"
 RAW = "https://raw.githubusercontent.com/{repo}/{branch}/{path}"
 CONTENTS = "https://api.github.com/repos/{repo}/contents/{path}?ref={branch}"
 
