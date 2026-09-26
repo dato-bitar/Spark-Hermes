@@ -1,0 +1,231 @@
+{
+ "swe-fix-r0020-02": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/test_grouping.py::test_grouping_alias"
+    ]
+   ],
+   "assets_sha256": "adfde8e508ffe150dfe3a9d0d7dd908879bf0e7a58425dedbf5f00abdcfcbe49",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "1cf1daec08c5d704bc03b6a3acfa83730d34d49c8ae73da611e8e6e4df44b048",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "andialbrecht__sqlparse.e57923b3.func_basic__huype57z",
+   "environment": "jyangballin/swesmith.x86_64.andialbrecht_1776_sqlparse.e57923b3"
+  }
+ },
+ "swe-fix-r0020-03": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/test_inference.py::InferenceTest::test_metaclass_subclasses_arguments_are_classes_not_instances"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_inference.py::InferenceTest::test_type__new__metaclass_lookup"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_inference.py::InferenceTest::test_with_metaclass_subclasses_arguments_are_classes_not_instances"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_inference.py::InferenceTest::test_with_metaclass_with_partial_imported_name"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_scoped_nodes.py::ClassNodeTest::test_cls_special_attributes_2"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_scoped_nodes.py::ClassNodeTest::test_metaclass_lookup"
+    ]
+   ],
+   "assets_sha256": "cf3f6ffb590e35b4e84f2d793b33206a50fcb0fb57ee502bb4ce76d22ccf2633",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "39af070cfff5ace6c22f1bff92983757a492191b9e835824206ac7150c4c4ec9",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "pylint-dev__astroid.b114f6b5.func_basic__ddpz3b5t",
+   "environment": "jyangballin/swesmith.x86_64.pylint-dev_1776_astroid.b114f6b5"
+  }
+ },
+ "swe-fix-r0020-04": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/test_manager.py::AstroidManagerTest::test_ast_from_module_name_egg"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_manager.py::AstroidManagerTest::test_ast_from_module_name_pyz"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_manager.py::AstroidManagerTest::test_ast_from_module_name_zip"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_manager.py::AstroidManagerTest::test_ast_from_namespace_pkg_resources"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_manager.py::AstroidManagerTest::test_ast_from_namespace_pkgutil"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_modutils.py::ModuleFileTest::test_find_egg_module"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/test_modutils.py::ModuleFileTest::test_find_zipped_module"
+    ]
+   ],
+   "assets_sha256": "5b71ec3c9ea35c90f4ea3e254b733768e7dbc254da68badf2aea1cd222fc1984",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "3d9e794863eb630b46553166ac48943f2a6e8d47a905604f37437d448b7d7586",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "pylint-dev__astroid.b114f6b5.combine_file__xi2nex5r",
+   "environment": "jyangballin/swesmith.x86_64.pylint-dev_1776_astroid.b114f6b5"
+  }
+ },
+ "swe-fix-r0020-08": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/endpoints/test_base.py::SignatureVerificationTest::test_rsa_signature"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_hmac_false_positives"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_plaintext_false_positives"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_rsa_false_positives"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_rsa_jwt_algorithm_cache"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_sign_hmac_sha512_with_client"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_sign_plaintext_with_client"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_sign_rsa_sha1_with_client"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/oauth1/rfc5849/test_signatures.py::SignatureTests::test_sign_rsa_sha256_with_client"
+    ]
+   ],
+   "assets_sha256": "8519bcf107f62755dc5953f684c903548867d4a5cd86b3e857372eec979d3bee",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "5e8d49c165e048afc4973d6bdbcdf2184b00b7d9d6c86093a1c58f9f7509d5fc",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "oauthlib__oauthlib.1fd52536.combine_file__u4wh8onm",
+   "environment": "jyangballin/swesmith.x86_64.oauthlib_1776_oauthlib.1fd52536"
+  }
+ },
+ "swe-fix-r0020-16": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/openid/connect/core/endpoints/test_claims_handling.py::TestClaimsHandling::test_claims_stored_on_code_creation"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/openid/connect/core/endpoints/test_claims_handling.py::TestClaimsHandling::test_invalid_claims"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/openid/connect/core/endpoints/test_refresh_token.py::TestRefreshToken::test_refresh_token_with_openid"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/openid/connect/core/grant_types/test_refresh_token.py::OpenIDRefreshTokenTest::test_refresh_id_token"
+    ],
+    [
+     "custom",
+     "swe_test",
+     "tests/openid/connect/core/grant_types/test_refresh_token.py::OpenIDRefreshTokenTest::test_refresh_id_token_false"
+    ]
+   ],
+   "assets_sha256": "830c73898adc4edbf6b53ff302982d99e0360b4a02f503e7323a9b14c742bf35",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "74a1d4094aa4961aba28dff761b74da42373e73c488825ec34db51edb1b705c7",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "oauthlib__oauthlib.1fd52536.combine_module__oq5a6syn",
+   "environment": "jyangballin/swesmith.x86_64.oauthlib_1776_oauthlib.1fd52536"
+  }
+ },
+ "swe-fix-r0020-17": {
+  "withheld": {
+   "predicates": [
+    [
+     "custom",
+     "swe_test",
+     "tests/brain/test_attr.py::AttrsTest::test_attrs_with_only_annotation_works"
+    ]
+   ],
+   "assets_sha256": "d721775abcddd7bbec90084289b3e5db7464c0817dbac8a71e129b141ceb515d",
+   "checks_sha256": "403d3351fb14b2b302689c398daf0d6d3d2c240cf4f57276e5184634be68f0b2"
+  },
+  "salt": "e5fef6928b773d39a4dc80d8a74137a242deba516cf523767389e354bc68028a",
+  "source": {
+   "dataset": "SWE-bench/SWE-smith",
+   "instance_id": "pylint-dev__astroid.b114f6b5.pr_2515",
+   "environment": "jyangballin/swesmith.x86_64.pylint-dev_1776_astroid.b114f6b5"
+  }
+ }
+}
