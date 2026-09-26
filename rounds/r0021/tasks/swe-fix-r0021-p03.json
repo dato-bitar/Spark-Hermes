@@ -1,0 +1,25 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p03",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\ndeepcopy of missing singleton returns None instead of singleton instance\n\n#### Description\n\nWhen using `copy.deepcopy()` on the `marshmallow.missing` singleton, it returns `None` instead of the singleton instance itself. This breaks the singleton pattern and can cause unexpected behavior in code that relies on identity checks with the missing sentinel.\n\n#### Steps/Code to Reproduce\n\n```python\nimport copy\nfrom marshmallow import utils\n\n# This works as expected\nshallow_copy = copy.copy(utils.missing)\nprint(f\"Shallow copy is singleton: {shallow_copy is utils.missing}\")  # True\n\n# This fails - returns None instead of the singleton\ndeep_copy = copy.deepcopy(utils.missing)\nprint(f\"Deep copy is singleton: {deep_copy is utils.missing}\")  # False\nprint(f\"Deep copy value: {deep_copy}\")  # None\n```\n\nExpected output:\n```\nShallow copy is singleton: True\nDeep copy is singleton: True\nDeep copy value: <marshmallow.missing>\n```\n\nActual output:\n```\nShallow copy is singleton: True\nDeep copy is singleton: False\nDeep copy value: None\n```\n\nThe `missing` singleton should maintain its identity even after deep copying operations, similar to how `None`, `True`, and `False` behave.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "marshmallow-code__marshmallow.9716fc62.func_basic__2n17jd2z",
+  "environment": "jyangballin/swesmith.x86_64.marshmallow-code_1776_marshmallow.9716fc62",
+  "fail_to_pass": [
+   "tests/test_utils.py::test_missing_singleton_copy"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}

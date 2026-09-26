@@ -1,0 +1,25 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p06",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\nNavigation keys not working in CAN monitor\n\nDescription\n\nRight now, when using the CAN monitor, the down arrow key, page up, and page down keys don't work for navigating through the message display. Only the up arrow key works for navigation.\n\nTo reproduce:\n1. Run the CAN monitor with a database file\n2. Try to navigate through messages using arrow down key, page up key, or page down key\n3. Notice that only the up arrow key responds, while the other navigation keys do nothing\n\nThis makes it difficult to browse through a large number of CAN messages, as you can only scroll up but not down or page through the data.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "cantools__cantools.0c6a7871.func_pm_remove_cond__g8oxp3s9",
+  "environment": "jyangballin/swesmith.x86_64.cantools_1776_cantools.0c6a7871",
+  "fail_to_pass": [
+   "tests/test_monitor.py::CanToolsMonitorTest::test_display_paginated_data"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}

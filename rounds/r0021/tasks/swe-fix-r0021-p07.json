@@ -1,0 +1,31 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p07",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\nGPX walk() method returns no points when only_points=True\n\n#### Description\n\nThe `walk()` method in the GPX class doesn't yield any points when `only_points=True` is specified. Instead of returning the points, it appears to skip them entirely.\n\n#### Steps/Code to Reproduce\n\n```python\nimport gpxpy\n\n# Load a GPX file\nwith open('sample.gpx', 'r') as gpx_file:\n    gpx = gpxpy.parse(gpx_file)\n\n# This should yield points but returns nothing\npoints = list(gpx.walk(only_points=True))\nprint(f\"Points found: {len(points)}\")  # Expected: > 0, Actual: 0\n\n# This works fine and returns tuples\npoint_tuples = list(gpx.walk(only_points=False))\nprint(f\"Point tuples found: {len(point_tuples)}\")  # Works as expected\n```\n\nThe `only_points=True` parameter should yield just the point objects, but currently yields nothing at all.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "tkrajina__gpxpy.09fc46b3.func_basic__fb8s973q",
+  "environment": "jyangballin/swesmith.x86_64.tkrajina_1776_gpxpy.09fc46b3",
+  "fail_to_pass": [
+   "test.py::GPXTests::test_gpx_fill_time_data_with_end_time_and_time_delta",
+   "test.py::GPXTests::test_gpx_fill_time_data_with_start_time_and_end_time",
+   "test.py::GPXTests::test_gpx_fill_time_data_with_start_time_and_end_time_and_time_delta",
+   "test.py::GPXTests::test_gpx_fill_time_data_with_start_time_and_time_delta",
+   "test.py::GPXTests::test_nearest_location_1",
+   "test.py::GPXTests::test_reduce_by_min_distance",
+   "test.py::GPXTests::test_walk_gpx_points"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}

@@ -1,0 +1,25 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p01",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\nInconsistent Sender Information in DBC Output\n\nDescription\n\nWhen converting SYM files to DBC format using the `cantools` library, there appears to be an inconsistency in the sender information for messages with multiple senders. Specifically, the DBC output does not consistently include all expected senders for a given message.\n\nTo reproduce this issue, you can follow these steps:\n\n1. Prepare a SYM file that includes a message with multiple senders.\n2. Use the `cantools` command-line tool to convert the SYM file to a DBC file.\n3. Compare the generated DBC file against the expected output.\n\nFor example, consider a SYM file with a message that should list both \"ECU\" and \"Peripherals\" as senders. The generated DBC file may only list \"Peripherals\" as the sender, omitting \"ECU\".\n\nThis discrepancy can lead to issues when the DBC file is used in environments expecting all senders to be listed, potentially causing communication problems in systems relying on complete sender information.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "cantools__cantools.0c6a7871.lm_rewrite__hqiigtx2",
+  "environment": "jyangballin/swesmith.x86_64.cantools_1776_cantools.0c6a7871",
+  "fail_to_pass": [
+   "tests/test_convert.py::CanToolsConvertFullTest::test_sym_to_dbc__compare_files"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}

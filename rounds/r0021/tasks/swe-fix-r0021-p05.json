@@ -1,0 +1,33 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p05",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\nSQL statement splitting broken for stored procedures and functions\n\n#### Description\n\nSQL statement splitting is not working correctly for stored procedures and functions containing BEGIN/END blocks, CASE statements, and other control flow structures. The splitter is incorrectly breaking apart what should be single statements.\n\n#### Steps/Code to Reproduce\n\n```python\nimport sqlparse\n\n# This should be treated as a single statement but gets split incorrectly\nsql = '''CREATE FUNCTION a(x VARCHAR(20)) RETURNS VARCHAR(20)\nBEGIN\n DECLARE y VARCHAR(20);\n IF (1 = 1) THEN\n SET x = y;\n END IF;\n RETURN x;\nEND;\nSELECT * FROM a.b;'''\n\nstatements = sqlparse.split(sql)\nprint(f\"Expected 2 statements, got {len(statements)}\")\n# Expected: 2 (the CREATE FUNCTION and the SELECT)\n# Actual: More than 2 statements due to incorrect splitting\n\n# Another example with CASE statements\nsql2 = '''CREATE PROCEDURE test()\nBEGIN\n    CASE \n        WHEN condition1 THEN\n            SELECT 1;\n        WHEN condition2 THEN  \n            SELECT 2;\n    END CASE;\nEND;'''\n\nstatements2 = sqlparse.split(sql2)\nprint(f\"Expected 1 statement, got {len(statements2)}\")\n# Expected: 1 statement\n# Actual: Multiple statements due to incorrect splitting\n```\n\nThe issue affects various SQL constructs including:\n- CREATE FUNCTION/PROCEDURE with BEGIN/END blocks\n- CASE/WHEN statements inside procedures\n- IF/THEN/END IF blocks\n- Nested control structures\n\nThis makes it impossible to properly parse and process stored procedures and functions that contain these common SQL constructs.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "andialbrecht__sqlparse.e57923b3.func_basic__lsk6zbwy",
+  "environment": "jyangballin/swesmith.x86_64.andialbrecht_1776_sqlparse.e57923b3",
+  "fail_to_pass": [
+   "tests/test_regressions.py::test_issue193_splitting_function",
+   "tests/test_regressions.py::test_issue194_splitting_function",
+   "tests/test_regressions.py::test_issue485_split_multi",
+   "tests/test_split.py::test_split_begintag_2",
+   "tests/test_split.py::test_split_casewhen_procedure",
+   "tests/test_split.py::test_split_create_function[function.sql]",
+   "tests/test_split.py::test_split_multiple_case_in_begin",
+   "tests/test_split.py::test_split_mysql_handler_for",
+   "tests/test_split.py::test_split_strip_semicolon_procedure"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}

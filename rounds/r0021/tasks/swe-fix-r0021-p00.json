@@ -1,0 +1,33 @@
+{
+ "schema": "sh-preview-v1",
+ "task_id": "swe-fix-r0021-p00",
+ "round_id": "r0021",
+ "family": "swe_fix",
+ "prompt": "The repository at /testbed has a bug, described below. Fix it by changing the source code; do not modify or\nadd tests. When you are done, the project's existing test suite should pass.\n\n<issue>\nC source generation produces incorrect range checks for integer signals\n\n#### Description\n\nWhen generating C source code for CAN databases, the range check functions for integer signals are incorrectly generating floating-point comparisons instead of integer comparisons. This results in compilation warnings and potentially incorrect behavior.\n\n#### Steps/Code to Reproduce\n\n```python\nimport cantools\n\n# Load a database with integer signals\ndb = cantools.database.load_file('tests/files/dbc/motohawk.dbc')\n\n# Generate C source code\nc_source = cantools.database.can.c_source.generate_c_source(db, 'motohawk')\n\n# The generated range check functions contain floating-point literals like:\n# return (value <= 1.0u);  // Should be: return (value <= 1u);\n# return (value <= 50.0u); // Should be: return (value <= 50u);\n```\n\nThe generated C code contains range check functions like:\n\n```c\nbool motohawk_example_message_enable_is_in_range(uint8_t value)\n{\n    return (value <= 1.0u);  // Incorrect: mixing float literal with integer\n}\n\nbool motohawk_example_message_average_radius_is_in_range(uint8_t value)\n{\n    return (value <= 50.0u);  // Incorrect: mixing float literal with integer\n}\n```\n\nThis causes compilation issues when the generated C code is compiled, as it's comparing integer values against floating-point literals.\n</issue>\n",
+ "workdir": "/testbed",
+ "tools": [
+  "terminal",
+  "file"
+ ],
+ "max_turns": 100,
+ "timeout_s": 1800,
+ "token_budget": 600000,
+ "grading": "share of the tests the bug breaks that pass, counted only if no kept test fails",
+ "source": {
+  "dataset": "SWE-bench/SWE-smith",
+  "instance_id": "cantools__cantools.0c6a7871.func_pm_ctrl_invert_if__ivemxk5m",
+  "environment": "jyangballin/swesmith.x86_64.cantools_1776_cantools.0c6a7871",
+  "fail_to_pass": [
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_bit_fields",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_database_name",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_generate_fuzzer",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_no_signal_encode_decode",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_sender_node",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_sender_node_no_signal_encode_decode",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_sym",
+   "tests/test_command_line.py::CanToolsCommandLineTest::test_generate_c_source_working_directory"
+  ]
+ },
+ "note": "A practice bug. The round is scored on different, hidden bugs from the same repository."
+}
